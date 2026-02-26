@@ -1,0 +1,11 @@
+{
+  "name": "Remix: DEFENSAS RIBEREÑAS-RONALD CASMA",
+  "description": "Comprehensive construction management system for hydraulic works, featuring real-time sync, AI technical assistance, and detailed reporting.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera",
+    "display-capture",
+    "geolocation",
+    "clipboard-read"
+  ]
+}
