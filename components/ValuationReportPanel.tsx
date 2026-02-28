@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from "react";
-import { Sector, BudgetSection, MeasurementEntry, DikeConfig, BudgetItem } from "../types";
-import { FileSpreadsheet, Download, Printer, Search, ChevronDown, ChevronRight, Filter } from "lucide-react";
+import { Sector, BudgetSection, MeasurementEntry, DikeConfig, BudgetItem, ProtocolEntry } from "../types";
+import { FileSpreadsheet, Download, Printer, Search, ChevronDown, ChevronRight, Filter, Calendar } from "lucide-react";
 import { Button } from "./Button";
 import * as XLSX from 'xlsx';
 
@@ -9,6 +9,7 @@ interface ValuationReportPanelProps {
   sectors: Sector[];
   budgetBySector: Record<string, BudgetSection[]>;
   measurements: MeasurementEntry[];
+  protocols?: ProtocolEntry[];
   dikes: DikeConfig[];
   filterSectorId?: string;
   filterDikeId?: string;
@@ -18,6 +19,7 @@ export const ValuationReportPanel: React.FC<ValuationReportPanelProps> = ({
   sectors,
   budgetBySector,
   measurements,
+  protocols = [],
   dikes,
   filterSectorId = "ALL",
   filterDikeId = "ALL"
@@ -44,36 +46,64 @@ export const ValuationReportPanel: React.FC<ValuationReportPanelProps> = ({
 
   const getExecutedQuantity = (itemCode: string) => {
     return sectorMeasurements.reduce((acc, m) => {
-      // Only count if the measurement is marked as "executed" (item501A_Carguio === 1 is our current convention for valid rows)
-      if (m.item501A_Carguio !== 1) return acc;
-
       const rawCode = itemCode.trim();
       const baseCode = rawCode.split('_')[0].trim();
       
-      // Logic to distinguish B1 vs B2 items if they share the same base code
+      const itemToField: Record<string, string> = {
+          "401.A": "item401A", "402.B": "item402B", "402.E": "item402E", "403.A": "item403A",
+          "404.A": "item404A", "404.B": "item404B", "404.D": "item404D", "404.E": "item404E",
+          "412.A": "item412A", "413.A": "item413A", "406.A": "item406A", "409.A": "item409A",
+          "416.A": "item416A", "408.A": "item408A", "415.A": "item415"
+      };
+      const fieldName = itemToField[baseCode] || rawCode;
+
+      const protocol = protocols.find(p => p.measurementId === m.id);
+      const hasProtocol = protocol && protocol.protocols[fieldName];
+
+      if (!hasProtocol && m.item501A_Carguio !== 1) return acc;
+
       const isB2BudgetItem = rawCode.endsWith('_R') || ['404.G', '404.H', '415.A', '416.B', '417.A'].includes(rawCode);
-      const isB1BudgetItem = !isB2BudgetItem;
-
       const isB2Row = m.tipoTerreno === 'B2';
-      const isB1Row = m.tipoTerreno === 'B1' || !m.tipoTerreno || m.tipoTerreno === 'NORMAL';
-
       if (isB2BudgetItem && !isB2Row) return acc;
-      if (isB1BudgetItem && !isB1Row) return acc;
+      if (!isB2BudgetItem && isB2Row) return acc;
 
       let val = 0;
       const dist = m.distancia || 0;
 
-      if (m[rawCode] !== undefined) {
+      if (m[fieldName] !== undefined) {
+         val = Number(m[fieldName]);
+      } else if (m[rawCode] !== undefined) {
          val = Number(m[rawCode]);
       } else {
-        // Fallback to base code if specific code not found
-        const fieldName = `item${baseCode.replace(/\./g, '')}`;
-        val = Number(m[fieldName] || 0);
+        const fallbackField = `item${baseCode.replace(/\./g, '')}`;
+        val = Number(m[fallbackField] || 0);
       }
       
       return acc + (val * dist);
     }, 0);
   };
+
+  const valuationSummary = useMemo(() => {
+    const summary: Record<string, { total: number, items: Record<string, number> }> = {};
+    
+    sectorMeasurements.forEach(m => {
+        const protocol = protocols.find(p => p.measurementId === m.id);
+        if (!protocol) return;
+
+        (Object.entries(protocol.valuationMonths || {}) as [string, string][]).forEach(([itemField, month]) => {
+            if (!month) return;
+            if (!summary[month]) summary[month] = { total: 0, items: {} };
+            
+            const area = Number((m as any)[itemField] || 0);
+            const volume = area * m.distancia;
+            
+            summary[month].total += volume;
+            summary[month].items[itemField] = (summary[month].items[itemField] || 0) + volume;
+        });
+    });
+
+    return Object.entries(summary).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [sectorMeasurements, protocols]);
 
   const exportToExcel = () => {
     const data: any[] = [];
@@ -155,6 +185,33 @@ export const ValuationReportPanel: React.FC<ValuationReportPanelProps> = ({
           />
         </div>
       </div>
+
+      {/* Valuation Summary Section */}
+      {valuationSummary.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-lg overflow-hidden">
+            <div className="bg-emerald-600 text-white px-4 py-3 flex items-center gap-2 font-black text-xs uppercase tracking-widest">
+                <Calendar className="w-4 h-4" /> Resumen de Avance por Valorización
+            </div>
+            <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {valuationSummary.map(([month, data]) => (
+                    <div key={month} className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-700">
+                        <div className="flex justify-between items-center mb-3 border-b border-gray-200 dark:border-gray-700 pb-2">
+                            <h4 className="font-black text-xs text-emerald-700 dark:text-emerald-400 uppercase">{month}</h4>
+                            <span className="text-[10px] font-mono bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 rounded text-emerald-700">{data.total.toLocaleString()} m³</span>
+                        </div>
+                        <div className="space-y-1">
+                            {Object.entries(data.items).map(([item, vol]) => (
+                                <div key={item} className="flex justify-between text-[9px]">
+                                    <span className="text-gray-500 uppercase font-bold">{item}</span>
+                                    <span className="font-mono text-gray-700 dark:text-gray-300">{vol.toLocaleString()} m³</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+      )}
 
       {/* Main Table */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-xl overflow-hidden">

@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useRef } from "react";
-import { BudgetSection, MeasurementEntry, DikeConfig, Sector, BudgetItem } from "../types";
+import { BudgetSection, MeasurementEntry, DikeConfig, Sector, BudgetItem, ProtocolEntry } from "../types";
 import { ClipboardList, TrendingUp, Edit2, Save, Trash2, X, Layers, Download } from "lucide-react";
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -7,6 +7,7 @@ import jsPDF from 'jspdf';
 interface MeasurementSummaryPanelProps {
   budget: BudgetSection[];
   measurements: MeasurementEntry[];
+  protocols?: ProtocolEntry[];
   dikes: DikeConfig[];
   sectors: Sector[];
   budgetBySector?: Record<string, BudgetSection[]>;
@@ -18,6 +19,7 @@ interface MeasurementSummaryPanelProps {
 export const MeasurementSummaryPanel: React.FC<MeasurementSummaryPanelProps> = ({ 
     budget, 
     measurements, 
+    protocols = [],
     dikes, 
     sectors, 
     budgetBySector,
@@ -78,11 +80,38 @@ export const MeasurementSummaryPanel: React.FC<MeasurementSummaryPanelProps> = (
 
   const getExecutedQuantity = (itemCode: string, allMeasurements: MeasurementEntry[]): number => {
     return allMeasurements.reduce((acc, m) => {
-      if (m.item501A_Carguio !== 1) return acc;
-
       const rawCode = itemCode.trim();
       const baseCode = rawCode.split('_')[0].trim();
       
+      // Map item codes to measurement field names
+      const itemToField: Record<string, string> = {
+          "401.A": "item401A",
+          "402.B": "item402B",
+          "402.E": "item402E",
+          "403.A": "item403A",
+          "404.A": "item404A",
+          "404.B": "item404B",
+          "404.D": "item404D",
+          "404.E": "item404E",
+          "412.A": "item412A",
+          "413.A": "item413A",
+          "406.A": "item406A",
+          "409.A": "item409A",
+          "409.B": "item409B",
+          "416.A": "item416A",
+          "408.A": "item408A",
+          "415.A": "item415"
+      };
+
+      const fieldName = itemToField[baseCode] || rawCode;
+      
+      // Protocol Linkage: Check if this item has a protocol number
+      const protocol = protocols.find(p => p.measurementId === m.id);
+      const hasProtocol = protocol && protocol.protocols[fieldName];
+
+      // Manual Mode: Fallback to item501A_Carguio if no protocol
+      if (!hasProtocol && m.item501A_Carguio !== 1) return acc;
+
       const isB2BudgetItem = rawCode.endsWith('_R') || ['404.G', '404.H', '415.A', '416.B', '417.A'].includes(rawCode);
       const isB1BudgetItem = !isB2BudgetItem;
 
@@ -96,34 +125,36 @@ export const MeasurementSummaryPanel: React.FC<MeasurementSummaryPanelProps> = (
       const dist = m.distancia || 0;
 
       // Check for dynamic column match first
-      if (m[rawCode] !== undefined) {
+      if (m[fieldName] !== undefined) {
+         val = Number(m[fieldName]);
+      } else if (m[rawCode] !== undefined) {
          val = Number(m[rawCode]);
       } else {
         switch (baseCode) {
-            case "402.B": val = (m.item402B_Contractual + m.item402B_Rep + m.item402B_Fund); break;
+            case "402.B": val = (m.item402B_Contractual || 0) + (m.item402B_Rep || 0) + (m.item402B_Fund || 0) + (m.item402B || 0); break;
             case "402.C": val = 0; break;
-            case "402.E": val = (m.item402E_NivelFreatico + m.item402E_NivelFreatico_MM); break;
-            case "403.A": val = (m.item403A_Contractual + m.item403A_Rep + m.item403A_Fund); break;
+            case "402.E": val = (m.item402E_NivelFreatico || 0) + (m.item402E_NivelFreatico_MM || 0) + (m.item402E || 0); break;
+            case "403.A": val = (m.item403A_Contractual || 0) + (m.item403A_Rep || 0) + (m.item403A_Fund || 0) + (m.item403A || 0); break;
             
-            case "404.A": val = (m.item404_Talud_T1 + m.item404_Talud_T1_MM); break;
-            case "404.B": val = (m.item404_Talud_T2 + m.item404_Talud_T2_MM); break;
-            case "404.G": val = (m.item404_Talud_T1 + m.item404_Talud_T1_MM + m.item404_Talud_T2 + m.item404_Talud_T2_MM); break;
+            case "404.A": val = (m.item404_Talud_T1 || 0) + (m.item404_Talud_T1_MM || 0) + (m.item404A || 0); break;
+            case "404.B": val = (m.item404_Talud_T2 || 0) + (m.item404_Talud_T2_MM || 0) + (m.item404B || 0); break;
+            case "404.G": val = (m.item404_Talud_T1 || 0) + (m.item404_Talud_T1_MM || 0) + (m.item404_Talud_T2 || 0) + (m.item404_Talud_T2_MM || 0) + (m.item404G || 0); break;
             
-            case "404.D": val = (m.item404_Una_T1 + m.item404_Una_T1_MM); break;
-            case "404.F": val = (m.item404_Una_T1 + m.item404_Una_T1_MM); break;
-            case "404.E": val = (m.item404_Una_T2 + m.item404_Una_T2_MM); break;
-            case "404.H": val = (m.item404_Una_T1 + m.item404_Una_T1_MM + m.item404_Una_T2 + m.item404_Una_T2_MM); break;
+            case "404.D": val = (m.item404_Una_T1 || 0) + (m.item404_Una_T1_MM || 0) + (m.item404D || 0); break;
+            case "404.F": val = (m.item404_Una_T1 || 0) + (m.item404_Una_T1_MM || 0); break;
+            case "404.E": val = (m.item404_Una_T2 || 0) + (m.item404_Una_T2_MM || 0) + (m.item404E || 0); break;
+            case "404.H": val = (m.item404_Una_T1 || 0) + (m.item404_Una_T1_MM || 0) + (m.item404_Una_T2 || 0) + (m.item404_Una_T2_MM || 0) + (m.item404H || 0); break;
             
-            case "405.A": val = (m.item405A_Descolmatacion + m.item405A_Descolmatacion_MM); break;
+            case "405.A": val = (m.item405A_Descolmatacion || 0) + (m.item405A_Descolmatacion_MM || 0) + (m.item405A || 0); break;
             
-            case "413.A": val = (m.item413A_Contractual + m.item413A_MM); break;
-            case "412.A": val = m.item412A_Afirmado; break;
-            case "406.A": val = m.item406A_Perfilado; break;
-            case "409.A": val = m.item409A_Geotextil; break;
-            case "416.A": val = m.item416A_Fundacion; break;
-            case "416.B": val = m.item416A_Fundacion; break;
-            case "408.A": val = m.item408A_Zanja; break;
-            case "415.A": val = m.gavion; break;
+            case "413.A": val = (m.item413A_Contractual || 0) + (m.item413A_MM || 0) + (m.item413A || 0); break;
+            case "412.A": val = m.item412A_Afirmado || m.item412A || 0; break;
+            case "406.A": val = m.item406A_Perfilado || m.item406A || 0; break;
+            case "409.A": val = m.item409A_Geotextil || m.item409A || 0; break;
+            case "416.A": val = m.item416A_Fundacion || m.item416A || 0; break;
+            case "416.B": val = m.item416A_Fundacion || 0; break;
+            case "408.A": val = m.item408A_Zanja || m.item408A || 0; break;
+            case "415.A": val = m.gavion || m.item415 || 0; break;
             
             default: val = 0;
         }

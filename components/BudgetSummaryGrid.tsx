@@ -1,7 +1,8 @@
 
 import React, { useMemo } from "react";
 import { Sector, BudgetSection, MeasurementEntry, DikeConfig } from "../types";
-import { LayoutGrid, TrendingUp, PieChart, Activity } from "lucide-react";
+import { LayoutGrid, TrendingUp, PieChart as PieChartIcon, Activity, BarChart3 } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 interface BudgetSummaryGridProps {
   sectors: Sector[];
@@ -9,6 +10,8 @@ interface BudgetSummaryGridProps {
   measurements: MeasurementEntry[];
   dikes: DikeConfig[];
 }
+
+const COLORS = ['#003366', '#0066cc', '#3399ff', '#66b2ff', '#99ccff', '#cce5ff'];
 
 export const BudgetSummaryGrid: React.FC<BudgetSummaryGridProps> = ({
   sectors,
@@ -37,8 +40,6 @@ export const BudgetSummaryGrid: React.FC<BudgetSummaryGridProps> = ({
       const utilidad = directCost * 0.10;
       const subtotal = directCost + gastosGenerales + utilidad;
       
-      // These are fixed values from the image summary, usually distributed or global
-      // For the summary, we'll assume they are per sector or we'll show them in a global row
       const gastosGestion = 9537937.87 / sectors.length;
       const buenaVecindad = 449186.01 / sectors.length;
       const areasAuxiliares = 211593.17 / sectors.length;
@@ -84,8 +85,38 @@ export const BudgetSummaryGrid: React.FC<BudgetSummaryGridProps> = ({
     });
   }, [summaryData]);
 
+  const pieData = useMemo(() => {
+    return summaryData.map(s => ({
+      name: s.sectorName,
+      value: s.totalConIgv
+    }));
+  }, [summaryData]);
+
+  const componentsData = useMemo(() => {
+    return [
+      { name: 'Costo Directo', value: totals.directCost },
+      { name: 'G. Generales', value: totals.gastosGenerales },
+      { name: 'Utilidad', value: totals.utilidad },
+      { name: 'Otros Gastos', value: totals.otrosGastos },
+      { name: 'Tarifa/Fee', value: totals.tarifaFee },
+      { name: 'IGV', value: totals.igv },
+    ];
+  }, [totals]);
+
   const formatCurrency = (amount: number) => {
     return `S/. ${amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white dark:bg-gray-800 p-3 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl">
+          <p className="text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-widest mb-1">{payload[0].name}</p>
+          <p className="text-xs font-bold text-blue-600 dark:text-blue-400">{formatCurrency(payload[0].value)}</p>
+        </div>
+      );
+    }
+    return null;
   };
 
   return (
@@ -95,7 +126,7 @@ export const BudgetSummaryGrid: React.FC<BudgetSummaryGridProps> = ({
           <LayoutGrid className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h2 className="text-xl font-black text-gray-900 dark:text-white tracking-tight">RESUMEN DE PRESUPUESTO CONSOLIDADO</h2>
+          <h2 className="text-xl font-black text-gray-900 dark:text-white tracking-tight uppercase">Resumen de Presupuesto Consolidado</h2>
           <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Todos los Sectores del Proyecto</p>
         </div>
       </div>
@@ -110,7 +141,7 @@ export const BudgetSummaryGrid: React.FC<BudgetSummaryGridProps> = ({
         </div>
         <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:scale-110 transition-transform">
-            <PieChart className="w-12 h-12 text-emerald-600" />
+            <PieChartIcon className="w-12 h-12 text-emerald-600" />
           </div>
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Subtotal (GG + Utilidad)</p>
           <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{formatCurrency(totals.subtotal)}</p>
@@ -122,6 +153,69 @@ export const BudgetSummaryGrid: React.FC<BudgetSummaryGridProps> = ({
           <p className="text-[10px] font-bold text-blue-200 uppercase tracking-widest mb-1">Presupuesto Total (Inc. IGV)</p>
           <p className="text-2xl font-black text-white">{formatCurrency(totals.totalConIgv)}</p>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="flex items-center gap-2 mb-6">
+                  <PieChartIcon className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-widest">Distribución por Sector</h3>
+              </div>
+              <div className="h-[250px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                          <Pie
+                              data={pieData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={60}
+                              outerRadius={80}
+                              paddingAngle={5}
+                              dataKey="value"
+                          >
+                              {pieData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                              ))}
+                          </Pie>
+                          <Tooltip content={<CustomTooltip />} />
+                          <Legend 
+                              verticalAlign="bottom" 
+                              height={36}
+                              formatter={(value) => <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{value}</span>}
+                          />
+                      </PieChart>
+                  </ResponsiveContainer>
+              </div>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+              <div className="flex items-center gap-2 mb-6">
+                  <BarChart3 className="w-4 h-4 text-blue-600" />
+                  <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-widest">Componentes del Presupuesto</h3>
+              </div>
+              <div className="h-[250px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={componentsData} layout="vertical" margin={{ left: 40, right: 40 }}>
+                          <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} opacity={0.1} />
+                          <XAxis type="number" hide />
+                          <YAxis 
+                              dataKey="name" 
+                              type="category" 
+                              axisLine={false} 
+                              tickLine={false} 
+                              tick={{ fontSize: 9, fontWeight: 'bold', fill: '#6b7280' }}
+                              width={100}
+                          />
+                          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
+                          <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                              {componentsData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                              ))}
+                          </Bar>
+                      </BarChart>
+                  </ResponsiveContainer>
+              </div>
+          </div>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">

@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from "react";
 import { DikeConfig, MeasurementEntry, Sector, ProgressEntry } from "../types";
 import { Button } from "./Button";
-import { FileSpreadsheet, FileText, LayoutGrid, BookOpen, ChevronRight, ChevronDown } from "lucide-react";
+import { FileSpreadsheet, FileText, LayoutGrid, BookOpen, ChevronRight, ChevronDown, Info } from "lucide-react";
 import * as XLSX from 'xlsx';
 
 interface ReportsPanelProps {
@@ -25,7 +25,7 @@ export const ReportsPanel: React.FC<ReportsPanelProps> = ({
     filterDikeId = "ALL"
 }) => {
     const [activeReport, setActiveReport] = useState<"dike" | "summary" | "execution" | "global" | "sector">("dike");
-    const [terrainType, setTerrainType] = useState<"B1" | "B2">("B1");
+    const [terrainType, setTerrainType] = useState<"B1" | "B2" | "ALL">("B1");
     const [localFilterSectorId, setLocalFilterSectorId] = useState<string>(filterSectorId);
 
     // Sync with global filter if it changes
@@ -64,8 +64,8 @@ export const ReportsPanel: React.FC<ReportsPanelProps> = ({
         { id: 'item402E', label: '402.E', desc: 'EXCAVACIÓN DE UÑA EN MATERIAL CON NIVEL FREÁTICO', unit: 'm3' },
         { id: 'item403A', label: '403.A', desc: 'CONFORMACIÓN Y COMPACTACIÓN DE DIQUE', unit: 'm3' },
         { id: 'item403B', label: '403.B', desc: 'RECRECIMIENTO Y CONFORMACION EN DIQUE EXISTENTE', unit: 'm3' },
-        { id: 'item404G', label: '404.G', desc: 'ENROCADO Y ACOMODO PARA PROTECCIÓN DE TALUD EN DIQUE EXISTENTE TIPO 2', unit: 'm3' },
-        { id: 'item404H', label: '404.H', desc: 'ENROCADO Y ACOMODO EN UÑA ANTISOCAVANTE EN DIQUE EXISTENTE TIPO 1', unit: 'm3' },
+        { id: 'item404A', label: '404.G', desc: 'ENROCADO Y ACOMODO PARA PROTECCIÓN DE TALUD EN DIQUE EXISTENTE TIPO 2', unit: 'm3' },
+        { id: 'item404D', label: '404.H', desc: 'ENROCADO Y ACOMODO EN UÑA ANTISOCAVANTE EN DIQUE EXISTENTE TIPO 1', unit: 'm3' },
         { id: 'item409A', label: '409.A', desc: 'GEOTEXTIL NO TEJIDO CLASE 1, INCLUYE INSTALACIÓN', unit: 'm2' },
         { id: 'item412A', label: '412.A', desc: 'RELLENO COMPACTADO CON MATERIAL PARA AFIRMADO EN CORONA', unit: 'm3' },
         { id: 'item413A', label: '413.A', desc: 'RELLENO CON MATERIAL PROPIO', unit: 'm3' },
@@ -73,7 +73,7 @@ export const ReportsPanel: React.FC<ReportsPanelProps> = ({
         { id: 'item416A', label: '416.A', desc: 'PERFILADO Y COMPACTACION DE CORONA EN DIQUE EXISTENTE', unit: 'm3' },
     ];
 
-    const currentPartidas = terrainType === "B1" ? B1_PARTIDAS : B2_PARTIDAS;
+    const currentPartidas = terrainType === "B2" ? B2_PARTIDAS : B1_PARTIDAS;
 
     const selectedSectorName = useMemo(() => {
         if (localFilterSectorId === "ALL") return "Todos los Sectores";
@@ -391,12 +391,26 @@ export const ReportsPanel: React.FC<ReportsPanelProps> = ({
                 >
                     <BookOpen className="w-4 h-4" /> TIPO DE TERRENO B2
                 </button>
+                <button 
+                    onClick={() => setTerrainType("ALL")}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-t-xl border-x border-t transition-all font-bold text-sm ${terrainType === 'ALL' ? 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-blue-600' : 'bg-gray-100 dark:bg-gray-900 border-transparent text-gray-500 opacity-60'}`}
+                >
+                    <LayoutGrid className="w-4 h-4" /> TODOS LOS TERRENOS
+                </button>
             </div>
 
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                 {activeReport === "dike" && (
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
+                        {terrainType === "ALL" && (
+                            <div className="p-8 text-center">
+                                <Info className="w-12 h-12 text-blue-500 mx-auto mb-4 opacity-20" />
+                                <p className="text-gray-500 font-medium">Seleccione <span className="text-blue-600 font-bold">B1</span> o <span className="text-blue-600 font-bold">B2</span> para visualizar el reporte detallado por dique.</p>
+                                <p className="text-[10px] text-gray-400 mt-2">Los metrados varían significativamente según el tipo de terreno.</p>
+                            </div>
+                        )}
+                        {terrainType !== "ALL" && (
+                            <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-gray-100 dark:bg-gray-900/50">
                                     <th rowSpan={2} className="p-2 border border-gray-300 dark:border-gray-700 text-[10px] font-bold text-center uppercase">{selectedSectorName} - Resumen de Metrados por Dique</th>
@@ -445,40 +459,50 @@ export const ReportsPanel: React.FC<ReportsPanelProps> = ({
                                 </tr>
                             </tfoot>
                         </table>
+                    )}
                     </div>
                 )}
 
                 {activeReport === "summary" && (
                     <div className="p-6 max-w-4xl mx-auto">
-                        <h2 className="text-xl font-bold mb-6 uppercase text-center">RESUMEN 400 - MOVIMIENTO DE TIERRAS - {terrainType} - {selectedSectorName}</h2>
-                        <table className="w-full border-collapse">
-                            <thead>
-                                <tr className="bg-gray-200 dark:bg-gray-800">
-                                    <th className="p-3 border border-gray-400 text-left text-xs font-bold uppercase">Item</th>
-                                    <th className="p-3 border border-gray-400 text-left text-xs font-bold uppercase">Descripción de la Partida</th>
-                                    <th className="p-3 border border-gray-400 text-center text-xs font-bold uppercase">Und</th>
-                                    <th className="p-3 border border-gray-400 text-right text-xs font-bold uppercase bg-gray-300 dark:bg-gray-700">Metrados C03</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {currentPartidas.map((p, idx) => (
-                                    <tr key={p.id} className={idx % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-900/30'}>
-                                        <td className="p-2 border border-gray-300 dark:border-gray-700 text-xs font-bold">{p.label}</td>
-                                        <td className="p-2 border border-gray-300 dark:border-gray-700 text-xs uppercase">{p.desc}</td>
-                                        <td className="p-2 border border-gray-300 dark:border-gray-700 text-xs text-center">{p.unit}</td>
-                                        <td className="p-2 border border-gray-300 dark:border-gray-700 text-xs text-right font-mono font-bold">
-                                            {totalVolumes[p.id] ? totalVolumes[p.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                        {terrainType === "ALL" ? (
+                            <div className="p-8 text-center">
+                                <Info className="w-12 h-12 text-blue-500 mx-auto mb-4 opacity-20" />
+                                <p className="text-gray-500 font-medium">Seleccione <span className="text-blue-600 font-bold">B1</span> o <span className="text-blue-600 font-bold">B2</span> para visualizar el resumen de metrados.</p>
+                            </div>
+                        ) : (
+                            <>
+                                <h2 className="text-xl font-bold mb-6 uppercase text-center">RESUMEN 400 - MOVIMIENTO DE TIERRAS - {terrainType} - {selectedSectorName}</h2>
+                                <table className="w-full border-collapse">
+                                    <thead>
+                                        <tr className="bg-gray-200 dark:bg-gray-800">
+                                            <th className="p-3 border border-gray-400 text-left text-xs font-bold uppercase">Item</th>
+                                            <th className="p-3 border border-gray-400 text-left text-xs font-bold uppercase">Descripción de la Partida</th>
+                                            <th className="p-3 border border-gray-400 text-center text-xs font-bold uppercase">Und</th>
+                                            <th className="p-3 border border-gray-400 text-right text-xs font-bold uppercase bg-gray-300 dark:bg-gray-700">Metrados C03</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {currentPartidas.map((p, idx) => (
+                                            <tr key={p.id} className={idx % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-900/30'}>
+                                                <td className="p-2 border border-gray-300 dark:border-gray-700 text-xs font-bold">{p.label}</td>
+                                                <td className="p-2 border border-gray-300 dark:border-gray-700 text-xs uppercase">{p.desc}</td>
+                                                <td className="p-2 border border-gray-300 dark:border-gray-700 text-xs text-center">{p.unit}</td>
+                                                <td className="p-2 border border-gray-300 dark:border-gray-700 text-xs text-right font-mono font-bold">
+                                                    {totalVolumes[p.id] ? totalVolumes[p.id].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </>
+                        )}
                     </div>
                 )}
 
                 {activeReport === "execution" && (
                     <div className="p-4">
-                        <h2 className="text-2xl font-black mb-4 uppercase tracking-tighter text-center">Control Estado General de Dique - {selectedSectorName}</h2>
+                        <h2 className="text-2xl font-black mb-4 uppercase tracking-tighter text-center">Control Estado General de Dique - {terrainType === "ALL" ? "Todos los Terrenos" : terrainType} - {selectedSectorName}</h2>
                         <div className="overflow-x-auto">
                             <table className="w-full border-collapse text-[10px]">
                                 <thead>
@@ -497,7 +521,10 @@ export const ReportsPanel: React.FC<ReportsPanelProps> = ({
                                     {measurements
                                         .filter(m => {
                                             const dike = dikes.find(d => d.id === m.dikeId);
-                                            return dike && (localFilterSectorId === "ALL" || dike.sectorId === localFilterSectorId) && (filterDikeId === "ALL" || dike.id === filterDikeId);
+                                            const sectorMatch = localFilterSectorId === "ALL" || dike?.sectorId === localFilterSectorId;
+                                            const dikeMatch = filterDikeId === "ALL" || dike?.id === filterDikeId;
+                                            const terrainMatch = terrainType === "ALL" || m.tipoTerreno === terrainType;
+                                            return dike && sectorMatch && dikeMatch && terrainMatch;
                                         })
                                         .map(m => {
                                         const dike = dikes.find(d => d.id === m.dikeId);

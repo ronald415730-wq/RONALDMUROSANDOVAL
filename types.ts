@@ -80,6 +80,7 @@ export interface ProgressEntry {
   capa: string;
   observaciones: string;
   priority?: 'low' | 'medium' | 'high';
+  status?: 'Not Started' | 'In Progress' | 'Completed';
   completed?: boolean;
 }
 
@@ -143,6 +144,7 @@ export interface ProtocolEntry {
   intervencion: string;
   // Protocol numbers/status for each item
   protocols: Record<string, string>; 
+  valuationMonths?: Record<string, string>; // Added to track valuation month per item
 }
 
 export interface ProjectBackup {

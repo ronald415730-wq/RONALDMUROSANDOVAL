@@ -5,7 +5,7 @@ import { ExcelService } from "../services/excelService";
 import { Plus, Trash2, Calendar, HardHat, Filter, X, Layout, Search, Copy, Pickaxe, Mountain, Shovel, BarChart3, ChevronDown, Activity, AlertTriangle, Layers, Edit3, Download, ChevronUp, FileSpreadsheet, TrendingUp } from "lucide-react";
 import { Button } from "./Button";
 import { Input } from "./Input";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart, BarChart, Bar, Cell } from 'recharts';
 import { format, parseISO, startOfDay, eachDayOfInterval, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -239,28 +239,57 @@ const ProgressChart = ({ data }: { data: { name: string, percent: number }[] }) 
 
 const ActivityProgressChart = ({ data }: { data: { name: string, executed: number, total: number, unit: string }[] }) => {
     if (!data.length) return null;
+    
+    const chartData = data.map(item => ({
+        name: item.name,
+        percent: item.total > 0 ? Number(((item.executed / item.total) * 100).toFixed(1)) : 0,
+        executed: item.executed,
+        total: item.total,
+        unit: item.unit
+    }));
+
+    const CustomTooltip = ({ active, payload }: any) => {
+        if (active && payload && payload.length) {
+            const item = payload[0].payload;
+            return (
+                <div className="bg-white dark:bg-gray-800 p-3 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl">
+                    <p className="text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-widest mb-1">{item.name}</p>
+                    <p className="text-xs font-bold text-purple-600 dark:text-purple-400">
+                        {item.executed.toLocaleString()} / {item.total.toLocaleString()} {item.unit}
+                    </p>
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Progreso: {item.percent}%</p>
+                </div>
+            );
+        }
+        return null;
+    };
+
     return (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 shadow-sm mt-4">
-            <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-4 flex items-center gap-2 uppercase tracking-wide">
-                <Layers className="w-4 h-4 text-purple-600" /> Avance Físico por Especialidad
+            <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-6 flex items-center gap-2 uppercase tracking-wide">
+                <Layers className="w-4 h-4 text-purple-600" /> Avance Físico por Especialidad (%)
             </h3>
-            <div className="space-y-4">
-                {data.map((item, idx) => {
-                    const percent = item.total > 0 ? (item.executed / item.total) * 100 : 0;
-                    return (
-                        <div key={idx} className="space-y-1">
-                            <div className="flex justify-between text-xs">
-                                <span className="font-semibold text-gray-700 dark:text-gray-300">{item.name}</span>
-                                <span className="text-gray-500 font-mono">
-                                    {item.executed.toLocaleString()} / {item.total.toLocaleString()} {item.unit} ({percent.toFixed(1)}%)
-                                </span>
-                            </div>
-                            <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-3 overflow-hidden relative">
-                                <div className="h-full bg-gradient-to-r from-purple-500 to-indigo-600 rounded-full transition-all duration-700" style={{ width: `${Math.min(percent, 100)}%` }}></div>
-                            </div>
-                        </div>
-                    );
-                })}
+            <div className="h-[300px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} layout="vertical" margin={{ left: 40, right: 40 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} opacity={0.1} />
+                        <XAxis type="number" domain={[0, 100]} hide />
+                        <YAxis 
+                            dataKey="name" 
+                            type="category" 
+                            axisLine={false} 
+                            tickLine={false} 
+                            tick={{ fontSize: 9, fontWeight: 'bold', fill: '#6b7280' }}
+                            width={100}
+                        />
+                        <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
+                        <Bar dataKey="percent" radius={[0, 4, 4, 0]}>
+                            {chartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#8b5cf6' : '#6366f1'} />
+                            ))}
+                        </Bar>
+                    </BarChart>
+                </ResponsiveContainer>
             </div>
         </div>
     );
@@ -415,6 +444,7 @@ export const ProgressControlPanel: React.FC<ProgressControlPanelProps> = ({
   const [selectedPartida, setSelectedPartida] = useState("");
   const [capa, setCapa] = useState("Capa 1");
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [status, setStatus] = useState<'Not Started' | 'In Progress' | 'Completed'>('In Progress');
   const [observaciones, setObservaciones] = useState("");
 
   // Searchable Partida State
@@ -444,6 +474,8 @@ export const ProgressControlPanel: React.FC<ProgressControlPanelProps> = ({
   const [filterTipoEnrocado, setFilterTipoEnrocado] = useState<string>("TODOS");
   const [filterPartida, setFilterPartida] = useState<string>("");
   const [filterCapa, setFilterCapa] = useState<string>("");
+  const [filterStatus, setFilterStatus] = useState<string>("TODOS");
+  const [filterPriority, setFilterPriority] = useState<string>("TODOS");
   
   // Sorting State
   const [sortConfig, setSortConfig] = useState<{ key: keyof ProgressEntry, direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
@@ -530,6 +562,16 @@ export const ProgressControlPanel: React.FC<ProgressControlPanelProps> = ({
           return;
       }
 
+      // Chronological Validation
+      const dikeEntries = entries.filter(e => e.dikeId === selectedDike);
+      if (dikeEntries.length > 0) {
+          const latestEntry = [...dikeEntries].sort((a, b) => b.date.localeCompare(a.date))[0];
+          if (date < latestEntry.date) {
+              const confirmMsg = `Atención: La fecha seleccionada (${date}) es anterior al último registro para este dique (${latestEntry.date}). ¿Desea continuar de todas formas?`;
+              if (!window.confirm(confirmMsg)) return;
+          }
+      }
+
       const newEntry: ProgressEntry = {
           id: Date.now().toString(),
           date,
@@ -543,7 +585,8 @@ export const ProgressControlPanel: React.FC<ProgressControlPanelProps> = ({
           intervencion: "REGISTRO MANUAL",
           capa,
           priority,
-          completed: false,
+          status,
+          completed: status === 'Completed',
           observaciones
       };
       onAddEntry(newEntry);
@@ -553,13 +596,25 @@ export const ProgressControlPanel: React.FC<ProgressControlPanelProps> = ({
   const handleCopyRow = (entry: ProgressEntry) => {
       setDate(entry.date); setSelectedDike(entry.dikeId); setProgInicio(entry.progInicio); setProgFin(entry.progFin);
       setLongitud(entry.longitud.toString()); setTipoTerreno(entry.tipoTerreno); setTipoEnrocado(entry.tipoEnrocado);
-      setSelectedPartida(entry.partida); setPartidaSearch(entry.partida); setCapa(entry.capa); setPriority(entry.priority || 'medium'); setObservaciones(entry.observaciones); setPkErrors({});
+      setSelectedPartida(entry.partida); setPartidaSearch(entry.partida); setCapa(entry.capa); 
+      setPriority(entry.priority || 'medium'); setStatus(entry.status || 'In Progress'); setObservaciones(entry.observaciones); setPkErrors({});
   };
 
   const handleRowUpdate = (id: string, field: keyof ProgressEntry, value: any) => {
     if (!onUpdateEntry) return;
     const entryToUpdate = entries.find(e => e.id === id);
     if (!entryToUpdate) return;
+    if (field === 'date') {
+        const dikeEntries = entries.filter(e => e.dikeId === entryToUpdate.dikeId && e.id !== id);
+        if (dikeEntries.length > 0) {
+            const latestEntry = [...dikeEntries].sort((a, b) => b.date.localeCompare(a.date))[0];
+            if (value < latestEntry.date) {
+                const confirmMsg = `Atención: La fecha seleccionada (${value}) es anterior al último registro para este dique (${latestEntry.date}). ¿Desea continuar?`;
+                if (!window.confirm(confirmMsg)) return;
+            }
+        }
+    }
+
     const updatedEntry = { ...entryToUpdate, [field]: value };
     if (field === 'progInicio' || field === 'progFin') {
         const start = field === 'progInicio' ? value : entryToUpdate.progInicio;
@@ -613,8 +668,10 @@ export const ProgressControlPanel: React.FC<ProgressControlPanelProps> = ({
     const matchEnrocado = filterTipoEnrocado === "TODOS" || entry.tipoEnrocado === filterTipoEnrocado;
     const matchPartida = filterPartida ? entry.partida.toLowerCase().includes(filterPartida.toLowerCase()) : true;
     const matchCapa = filterCapa ? entry.capa.toLowerCase().includes(filterCapa.toLowerCase()) : true;
+    const matchStatus = filterStatus === "TODOS" || entry.status === filterStatus;
+    const matchPriority = filterPriority === "TODOS" || entry.priority === filterPriority;
 
-    return matchSector && matchDike && matchStart && matchEnd && matchTerreno && matchEnrocado && matchPartida && matchCapa;
+    return matchSector && matchDike && matchStart && matchEnd && matchTerreno && matchEnrocado && matchPartida && matchCapa && matchStatus && matchPriority;
   });
 
   const sortedEntries = useMemo(() => {
@@ -883,7 +940,12 @@ export const ProgressControlPanel: React.FC<ProgressControlPanelProps> = ({
                                     type="number"
                                     placeholder="0.00" 
                                     value={longitud}
-                                    onChange={(e) => setLongitud(e.target.value)}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === "" || (!isNaN(Number(val)) && Number(val) >= 0)) {
+                                            setLongitud(val);
+                                        }
+                                    }}
                                     className="text-xs py-1 font-mono text-center"
                                 />
                                 {showLengthWarning && (
@@ -960,9 +1022,15 @@ export const ProgressControlPanel: React.FC<ProgressControlPanelProps> = ({
                          <Input label="Capa" placeholder="Ej: Capa 1" value={capa} onChange={e => setCapa(e.target.value)} className="text-xs py-1" />
                          <Input label="Observaciones" placeholder="Opcional" value={observaciones} onChange={e => setObservaciones(e.target.value)} className="text-xs py-1" />
                      </div>
-                     <Button onClick={handleAddEntry} className="w-full text-xs h-8">
-                         <Plus className="w-3 h-3" /> Agregar Avance
-                     </Button>
+                     <div className="flex justify-center pt-1">
+                         <Button 
+                             onClick={handleAddEntry} 
+                             className="w-8 h-8 p-0 bg-blue-600 text-white shadow-md border-0 rounded-full hover:scale-110 active:scale-95 transition-transform flex items-center justify-center"
+                             title="Agregar Avance"
+                         >
+                             <Plus className="w-5 h-5" />
+                         </Button>
+                     </div>
                  </div>
              </div>
          </div>
@@ -1193,7 +1261,39 @@ export const ProgressControlPanel: React.FC<ProgressControlPanelProps> = ({
                             />
                         </div>
 
-                        {(filterDikeIdState || filterStartDate || filterEndDate || activeSectorTab !== "TODOS" || filterTipoTerreno !== "TODOS" || filterTipoEnrocado !== "TODOS" || filterPartida || filterCapa) && (
+                        <div className="min-w-[100px]">
+                            <label className="text-[9px] uppercase font-bold text-gray-500 mb-0.5 flex items-center gap-1">
+                                <Activity className="w-2.5 h-2.5" /> Estado
+                            </label>
+                            <select 
+                                className="w-full text-[10px] border border-gray-300 dark:border-gray-600 rounded p-1 bg-white dark:bg-gray-800 outline-none focus:ring-1 focus:ring-blue-500 shadow-sm"
+                                value={filterStatus}
+                                onChange={e => setFilterStatus(e.target.value)}
+                            >
+                                <option value="TODOS">TODOS</option>
+                                <option value="Not Started">No Iniciado</option>
+                                <option value="In Progress">En Proceso</option>
+                                <option value="Completed">Completado</option>
+                            </select>
+                        </div>
+
+                        <div className="min-w-[100px]">
+                            <label className="text-[9px] uppercase font-bold text-gray-500 mb-0.5 flex items-center gap-1">
+                                <AlertTriangle className="w-2.5 h-2.5" /> Prioridad
+                            </label>
+                            <select 
+                                className="w-full text-[10px] border border-gray-300 dark:border-gray-600 rounded p-1 bg-white dark:bg-gray-800 outline-none focus:ring-1 focus:ring-blue-500 shadow-sm"
+                                value={filterPriority}
+                                onChange={e => setFilterPriority(e.target.value)}
+                            >
+                                <option value="TODOS">TODOS</option>
+                                <option value="low">Baja</option>
+                                <option value="medium">Media</option>
+                                <option value="high">Alta</option>
+                            </select>
+                        </div>
+
+                        {(filterDikeIdState || filterStartDate || filterEndDate || activeSectorTab !== "TODOS" || filterTipoTerreno !== "TODOS" || filterTipoEnrocado !== "TODOS" || filterPartida || filterCapa || filterStatus !== "TODOS" || filterPriority !== "TODOS") && (
                             <button 
                                 onClick={() => {
                                     setFilterDikeIdState(""); 
@@ -1204,6 +1304,8 @@ export const ProgressControlPanel: React.FC<ProgressControlPanelProps> = ({
                                     setFilterTipoEnrocado("TODOS");
                                     setFilterPartida("");
                                     setFilterCapa("");
+                                    setFilterStatus("TODOS");
+                                    setFilterPriority("TODOS");
                                 }}
                                 className="h-[26px] px-2 bg-white dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 text-[10px] rounded border border-gray-300 dark:border-gray-600 shadow-sm flex items-center"
                                 title="Limpiar Filtros"
@@ -1390,6 +1492,22 @@ export const ProgressControlPanel: React.FC<ProgressControlPanelProps> = ({
                                                      placeholder="Capa"
                                                  />
                                              </div>
+                                         </td>
+                                         <td className="px-3 py-1.5 text-[10px] w-[120px]">
+                                             <ProgressEditableSelect 
+                                                 value={entry.status || 'In Progress'}
+                                                 onChange={(v) => handleRowUpdate(entry.id, 'status', v)}
+                                                 options={[
+                                                     { value: 'Not Started', label: 'No Iniciado' },
+                                                     { value: 'In Progress', label: 'En Progreso' },
+                                                     { value: 'Completed', label: 'Completado' }
+                                                 ]}
+                                                 className={
+                                                     entry.status === 'Completed' ? 'text-green-600 font-bold' :
+                                                     entry.status === 'In Progress' ? 'text-blue-600 font-bold' :
+                                                     'text-gray-500'
+                                                 }
+                                             />
                                          </td>
                                          <td className="px-3 py-1.5 max-w-[150px]">
                                              <ProgressEditableCell 

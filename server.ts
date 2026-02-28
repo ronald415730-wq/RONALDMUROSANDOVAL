@@ -235,6 +235,26 @@ app.get('/api/auth/status', (req, res) => {
   res.json({ authenticated: !!req.cookies.google_tokens });
 });
 
+// --- Excel Integration Route ---
+app.post('/api/excel/import', (req, res) => {
+  try {
+    const { type, data } = req.body;
+    
+    if (type === 'MEASUREMENTS') {
+      // Merge or replace measurements
+      projectState.measurements = [...projectState.measurements, ...data];
+    } else if (type === 'FULL_SYNC') {
+      projectState = { ...projectState, ...data, lastUpdated: Date.now() };
+    }
+
+    broadcast(JSON.stringify({ type: 'STATE_UPDATED', payload: projectState }));
+    res.json({ success: true, message: "Datos importados correctamente" });
+  } catch (error) {
+    console.error("Excel Import Error", error);
+    res.status(500).json({ error: "Error al procesar la importación" });
+  }
+});
+
 // --- Vite Middleware ---
 if (process.env.NODE_ENV !== "production") {
   const vite = await createViteServer({

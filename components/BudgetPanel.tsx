@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { BudgetSection, Sector, BudgetItem, MeasurementEntry, DikeConfig } from "../types";
 import { ExcelService } from "../services/excelService";
 import { Calculator, Upload, CheckSquare, Square, Layout, Plus, Trash2, Edit2, Copy, AlertTriangle, RefreshCw, Save, Download, LayoutGrid, FileSpreadsheet } from "lucide-react";
@@ -146,6 +146,23 @@ export const BudgetPanel: React.FC<BudgetPanelProps> = ({
 
   const currentDikeName = dikes.find(d => d.id === activeDikeId)?.name || "";
 
+  // Duplicate Code Validation
+  const duplicateCodes = useMemo(() => {
+      const codes = new Set<string>();
+      const duplicates = new Set<string>();
+      activeBudget.forEach(section => {
+          section.groups.forEach(group => {
+              group.items.forEach(item => {
+                  if (codes.has(item.code)) {
+                      duplicates.add(item.code);
+                  }
+                  codes.add(item.code);
+              });
+          });
+      });
+      return duplicates;
+  }, [activeBudget]);
+
   // Measurements Filter
   const relevantMeasurements = isDikeMode
       ? measurements.filter(m => m.dikeId === activeDikeId)
@@ -185,8 +202,8 @@ export const BudgetPanel: React.FC<BudgetPanelProps> = ({
             case "404.B": val = m.item404B || 0; break;
             case "404.D": val = m.item404D || 0; break;
             case "404.E": val = m.item404E || 0; break;
-            case "404.G": val = m.item404G || 0; break;
-            case "404.H": val = m.item404H || 0; break;
+            case "404.G": val = m.item404A || 0; break;
+            case "404.H": val = m.item404D || 0; break;
             case "405.A": val = m.item405A || 0; break;
             case "406.A": val = m.item406A || 0; break;
             case "407.A": val = m.item407A || 0; break;
@@ -298,7 +315,7 @@ export const BudgetPanel: React.FC<BudgetPanelProps> = ({
           if (group) {
               const newItem: BudgetItem = {
                   id: Date.now().toString(),
-                  code: "NEW.01",
+                  code: "NUEVO.01",
                   description: "Nueva Partida",
                   unit: "und",
                   metrado: 0,
@@ -353,6 +370,28 @@ export const BudgetPanel: React.FC<BudgetPanelProps> = ({
       if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
           try {
               const data = await ExcelService.importTable<any>(file);
+
+              // Validate numerical values for Metrado and Price
+              const errors: string[] = [];
+              data.forEach((row, index) => {
+                  // Check both possible naming conventions (internal flattened format vs exported table format)
+                  const metrado = row.itemMetrado !== undefined ? row.itemMetrado : row.Metrado;
+                  const price = row.itemPrice !== undefined ? row.itemPrice : (row["Precio Unitario"] || row.PrecioUnitario);
+
+                  if (metrado !== undefined && metrado !== null && metrado !== "" && isNaN(Number(String(metrado).replace(/,/g, '')))) {
+                      errors.push(`Fila ${index + 2}: 'Metrado' tiene un valor no numérico ("${metrado}")`);
+                  }
+                  if (price !== undefined && price !== null && price !== "" && isNaN(Number(String(price).replace(/,/g, '')))) {
+                      errors.push(`Fila ${index + 2}: 'Precio Unitario' tiene un valor no numérico ("${price}")`);
+                  }
+              });
+
+              if (errors.length > 0) {
+                  alert(`Error de Importación:\n\nSe encontraron valores no numéricos en las columnas de Metrado o Precio.\n\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? `\n... y ${errors.length - 5} errores más.` : ''}`);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                  return;
+              }
+
               // Reconstruct budget structure if it's the flattened format
               if (data.length > 0 && data[0].sectorId) {
                   const budgetBySector: Record<string, BudgetSection[]> = {};
@@ -760,7 +799,7 @@ export const BudgetPanel: React.FC<BudgetPanelProps> = ({
                                 const balanceAmount = (balanceQty > 0 ? balanceQty : 0) * item.price;
 
                                 return (
-                                <tr key={item.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-xs ${item.selected === false ? 'opacity-50 grayscale' : ''}`}>
+                                <tr key={item.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors text-xs ${item.selected === false ? 'opacity-50 grayscale' : ''} ${duplicateCodes.has(item.code) ? 'bg-red-50 dark:bg-red-900/10' : ''}`}>
                                 <td className="px-1 py-1 text-center">
                                     <button 
                                         onClick={() => handleUpdateItem(section.id, group.id, item.id, 'selected', item.selected === undefined ? false : !item.selected)}
@@ -770,12 +809,17 @@ export const BudgetPanel: React.FC<BudgetPanelProps> = ({
                                         {item.selected !== false ? <CheckSquare className="w-3.5 h-3.5 text-blue-600" /> : <Square className="w-3.5 h-3.5" />}
                                     </button>
                                 </td>
-                                <td className="px-1 py-1 font-medium text-gray-500">
+                                <td className="px-1 py-1 font-medium text-gray-500 relative">
                                     <EditableCell 
                                         value={item.code} 
                                         onChange={(val) => handleUpdateItem(section.id, group.id, item.id, 'code', val)}
-                                        className="font-medium"
+                                        className={`font-medium ${duplicateCodes.has(item.code) ? 'text-red-600' : ''}`}
                                     />
+                                    {duplicateCodes.has(item.code) && (
+                                        <div className="absolute -top-1 -right-1">
+                                            <AlertTriangle className="w-3 h-3 text-red-500" title="Código duplicado en este dique" />
+                                        </div>
+                                    )}
                                 </td>
                                 <td className="px-1 py-1">
                                     <EditableCell 
@@ -795,7 +839,7 @@ export const BudgetPanel: React.FC<BudgetPanelProps> = ({
                                         value={item.metrado} 
                                         onChange={(val) => handleUpdateItem(section.id, group.id, item.id, 'metrado', parseFloat(val) || 0)}
                                         type="number"
-                                        validate={(val) => !isNaN(Number(val)) && val.trim() !== ""}
+                                        validate={(val) => !isNaN(Number(val)) && Number(val) > 0}
                                         className={`text-right font-bold ${isDikeMode ? 'text-orange-800 dark:text-orange-300' : 'text-blue-700 dark:text-blue-300'}`}
                                     />
                                 </td>
@@ -836,12 +880,15 @@ export const BudgetPanel: React.FC<BudgetPanelProps> = ({
                             )})}
                             <tr>
                                 <td colSpan={10} className="px-1 py-1 bg-gray-50 dark:bg-gray-900/30">
-                                    <button 
-                                        onClick={() => handleAddItem(section.id, group.id)}
-                                        className="flex items-center gap-1 text-[9px] text-blue-600 hover:text-blue-800 font-medium uppercase tracking-wide ml-8"
-                                    >
-                                        <Plus className="w-3 h-3" /> Agregar Partida a {group.code}
-                                    </button>
+                                    <div className="flex justify-center py-1">
+                                        <button 
+                                            onClick={() => handleAddItem(section.id, group.id)}
+                                            className="w-7 h-7 bg-blue-600 text-white rounded-full shadow-md hover:scale-110 active:scale-95 transition-transform flex items-center justify-center"
+                                            title={`Agregar Partida a ${group.code}`}
+                                        >
+                                            <Plus className="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                             </React.Fragment>

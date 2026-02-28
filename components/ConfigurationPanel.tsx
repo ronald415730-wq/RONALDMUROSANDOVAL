@@ -1,7 +1,7 @@
 
 import React, { useRef, useState, useMemo } from "react";
 import { DikeConfig, Sector, ProjectBackup, MeasurementEntry, BudgetSection } from "../types";
-import { Table, FileSpreadsheet, Download, Upload, Save, HardDrive, Copy, Plus, Edit2, Check, X, Trash2, FolderPlus, Settings, AlertTriangle, CheckCircle, Info, Columns, Play, Sparkles, FileText, LayoutGrid, TrendingUp, Activity, RefreshCw } from "lucide-react";
+import { Table, FileSpreadsheet, Download, Upload, Save, HardDrive, Copy, Plus, Edit2, Check, X, Trash2, FolderPlus, Settings, AlertTriangle, CheckCircle, Info, Columns, Play, Sparkles, FileText, LayoutGrid, TrendingUp, Activity, RefreshCw, FileCode, Terminal, ExternalLink, Database } from "lucide-react";
 import { Button } from "./Button";
 import { ExcelService } from "../services/excelService";
 
@@ -25,6 +25,8 @@ interface ConfigurationPanelProps {
   onDeleteColumn: (name: string) => void;
   onImportMeasurements?: (entries: MeasurementEntry[]) => void;
   onGenerateExercise?: () => void;
+  onGenerateDikeSample?: (dikeId: string) => void;
+  onLoadSamples?: () => void;
   filterSectorId?: string;
   filterDikeId?: string;
 }
@@ -49,6 +51,8 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   onDeleteColumn,
   onImportMeasurements,
   onGenerateExercise,
+  onGenerateDikeSample,
+  onLoadSamples,
   filterSectorId = "ALL",
   filterDikeId = "ALL"
 }) => {
@@ -62,6 +66,28 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   // Custom Columns Local State
   const [newColName, setNewColName] = useState("");
   const [viewMode, setViewMode] = useState<"TABLE" | "DETAILED" | "TRAMOS" | "CARDS">("TABLE");
+  const [showVBAModal, setShowVBAModal] = useState(false);
+
+  const handleAdvancedExcel = () => {
+    const backup: ProjectBackup = {
+      sectors,
+      dikes,
+      measurements,
+      progressEntries: [],
+      protocols: [],
+      customColumns,
+      budgetBySector: {},
+      timestamp: Date.now()
+    };
+    ExcelService.exportMasterWorkbook(backup);
+  };
+
+  const vbaCode = ExcelService.getVBAMacroCode(window.location.origin);
+
+  const copyVBACode = () => {
+    navigator.clipboard.writeText(vbaCode);
+    alert("Código VBA copiado al portapapeles. Péguelo en un módulo de Excel.");
+  };
 
   // Helper for Validation
   const parsePk = (val: string) => {
@@ -113,15 +139,62 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   };
 
   const analysisResults = useMemo(() => {
-    const results: { dike: DikeConfig, errors: string[] }[] = [];
+    const results: { id: string, name: string, errors: string[], type: 'DIKE' | 'MEASUREMENT' }[] = [];
+    
+    // 1. Dike validation
     dikes.forEach(d => {
         const v = getDikeValidation(d);
         if (!v.isValid) {
-            results.push({ dike: d, errors: v.errors });
+            results.push({ id: d.id, name: d.name, errors: v.errors, type: 'DIKE' });
         }
     });
+
+    // 2. Measurement validation: Orphaned entries
+    const orphaned = measurements.filter(m => !dikes.some(d => d.id === m.dikeId));
+    if (orphaned.length > 0) {
+        const orphanedByDikeId = orphaned.reduce((acc, m) => {
+            acc[m.dikeId] = (acc[m.dikeId] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+
+        Object.entries(orphanedByDikeId).forEach(([dId, count]) => {
+            results.push({
+                id: `orphan-${dId}`,
+                name: `Metrados Huérfanos (ID: ${dId})`,
+                errors: [`${count} registros no tienen un dique asociado en la configuración.`],
+                type: 'MEASUREMENT'
+            });
+        });
+    }
+
+    // 3. Measurement validation: Duplicates within same dike
+    const dikeGroups = measurements.reduce((acc, m) => {
+        if (!acc[m.dikeId]) acc[m.dikeId] = [];
+        acc[m.dikeId].push(m);
+        return acc;
+    }, {} as Record<string, MeasurementEntry[]>);
+
+    Object.entries(dikeGroups).forEach(([dId, groupEntries]) => {
+        const pkCounts: Record<string, number> = {};
+        (groupEntries as MeasurementEntry[]).forEach(e => {
+            const pk = (e.pk || "").trim();
+            if (pk) pkCounts[pk] = (pkCounts[pk] || 0) + 1;
+        });
+
+        const duplicates = Object.entries(pkCounts).filter(([pk, count]) => count > 1);
+        if (duplicates.length > 0) {
+            const dike = dikes.find(d => d.id === dId);
+            results.push({
+                id: `dupe-${dId}`,
+                name: dike ? `Duplicados en ${dike.name}` : `Duplicados en Dique ${dId}`,
+                errors: duplicates.map(([pk, count]) => `Progresiva ${pk} repetida ${count} veces.`),
+                type: 'MEASUREMENT'
+            });
+        }
+    });
+
     return results;
-  }, [dikes]);
+  }, [dikes, measurements]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -282,8 +355,24 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   const handleAddColumnLocal = () => {
       const name = newColName.trim();
       if (!name) return;
-      if (customColumns.includes(name)) {
-          alert("Esta columna ya existe.");
+
+      // Standard columns to avoid conflicts
+      const standardColumns = [
+        'pk', 'distancia', 'tipoTerreno', 'tipoEnrocado', 'intervencion', 'id', 'dikeId',
+        'item401A', 'item402B', 'item402B_MM', 'item402C', 'item402D', 'item402E', 'item402E_MM',
+        'item403A', 'item403A_MM', 'item403B', 'item404A', 'item404A_MM', 'item404B', 'item404D',
+        'item404D_MM', 'item404E', 'item404G', 'item404H', 'item405A', 'item406A', 'item407A',
+        'item408A', 'item409A', 'item409B', 'item410A', 'item410B', 'item412A', 'item413A',
+        'item413A_MM', 'item414A', 'item415', 'item416A', 'item501A_Carguio'
+      ];
+
+      if (standardColumns.some(c => c.toLowerCase() === name.toLowerCase())) {
+          alert(`"${name}" es un nombre reservado para columnas estándar.`);
+          return;
+      }
+
+      if (customColumns.some(c => c.toLowerCase() === name.toLowerCase())) {
+          alert(`La columna "${name}" ya existe.`);
           return;
       }
       onAddColumn(name);
@@ -345,6 +434,25 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                 <Button onClick={onBackup} className="w-full justify-center text-xs h-9 bg-blue-600 hover:bg-blue-700 shadow-sm">
                     <Download className="w-4 h-4 mr-2" /> Backup Total (.json)
                 </Button>
+                
+                {/* BOTÓN NUEVO: EXCEL MAESTRO AVANZADO */}
+                <Button 
+                    onClick={handleAdvancedExcel} 
+                    className="w-full justify-center text-xs h-9 bg-emerald-600 hover:bg-emerald-700 shadow-sm font-bold"
+                    title="Generar Excel con hojas por dique y macros"
+                >
+                    <FileSpreadsheet className="w-4 h-4 mr-2" /> Generar Libro Maestro (.xlsx)
+                </Button>
+                
+                {/* BOTÓN NUEVO: VER MACROS VBA */}
+                <Button 
+                    onClick={() => setShowVBAModal(true)} 
+                    variant="outline"
+                    className="w-full justify-center text-xs h-9 bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 shadow-sm font-bold"
+                >
+                    <FileCode className="w-4 h-4 mr-2" /> Ver Macros VBA (Importación)
+                </Button>
+
                 <div className="w-full relative">
                     <input 
                         type="file" 
@@ -399,6 +507,17 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                 <Button onClick={onGenerateExercise} className="w-full h-10 bg-amber-500 hover:bg-amber-600 text-white font-bold border-0 shadow-lg transition-all hover:scale-[1.02] active:scale-95">
                     <Play className="w-4 h-4 mr-2" /> EJECUTAR EJERCICIO MASIVO
                 </Button>
+                <Button onClick={onLoadSamples} className="w-full h-10 bg-blue-500 hover:bg-blue-600 text-white font-bold border-0 shadow-lg transition-all hover:scale-[1.02] active:scale-95">
+                    <RefreshCw className="w-4 h-4 mr-2" /> CARGAR DATOS DE MUESTRA
+                </Button>
+                {filterDikeId !== "ALL" && onGenerateDikeSample && (
+                    <Button 
+                        onClick={() => onGenerateDikeSample(filterDikeId)} 
+                        className="w-full h-10 bg-purple-500 hover:bg-purple-600 text-white font-bold border-0 shadow-lg transition-all hover:scale-[1.02] active:scale-95"
+                    >
+                        <Sparkles className="w-4 h-4 mr-2" /> GENERAR MUESTRA DIQUE SELECCIONADO
+                    </Button>
+                )}
             </div>
           </div>
 
@@ -493,16 +612,19 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                   <h3 className="text-sm font-black text-red-900 dark:text-red-100 uppercase tracking-widest">Inconsistencias Detectadas ({analysisResults.length})</h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {analysisResults.map(({ dike, errors }) => (
-                      <div key={dike.id} className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-red-100 dark:border-red-900/50 shadow-sm">
+                  {analysisResults.map((result) => (
+                      <div key={result.id} className={`bg-white dark:bg-gray-800 p-3 rounded-lg border shadow-sm ${result.type === 'DIKE' ? 'border-red-100 dark:border-red-900/50' : 'border-amber-100 dark:border-amber-900/50'}`}>
                           <div className="flex justify-between items-start mb-2">
-                              <span className="text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-tight">{dike.name}</span>
-                              <span className="text-[8px] font-bold text-gray-400 font-mono">{dike.id}</span>
+                              <div className="flex items-center gap-2">
+                                  {result.type === 'MEASUREMENT' && <Database className="w-3 h-3 text-amber-500" />}
+                                  <span className="text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-tight">{result.name}</span>
+                              </div>
+                              <span className="text-[8px] font-bold text-gray-400 font-mono">{result.id}</span>
                           </div>
                           <ul className="space-y-1">
-                              {errors.map((err, i) => (
-                                  <li key={i} className="text-[9px] text-red-600 dark:text-red-400 flex items-start gap-1.5 font-semibold">
-                                      <span className="mt-1 w-1 h-1 rounded-full bg-red-500 shrink-0" />
+                              {result.errors.map((err, i) => (
+                                  <li key={i} className={`text-[9px] flex items-start gap-1.5 font-semibold ${result.type === 'DIKE' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                                      <span className={`mt-1 w-1 h-1 rounded-full shrink-0 ${result.type === 'DIKE' ? 'bg-red-500' : 'bg-amber-500'}`} />
                                       {err}
                                   </li>
                               ))}
@@ -534,6 +656,7 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                               <th className="px-2 py-2 border-r border-white/20 text-center font-bold w-24">INICIO DIQUE</th>
                               <th className="px-2 py-2 border-r border-white/20 text-center font-bold w-24">FIN DIQUE</th>
                               <th className="px-2 py-2 border-r border-white/20 text-right font-bold w-24">TOTAL (ML)</th>
+                              <th className="px-2 py-2 border-r border-white/20 text-center font-bold w-32">AVANCE (%)</th>
                               <th className="px-2 py-2 text-center font-bold w-24">ACCIONES</th>
                           </tr>
                       </thead>
@@ -604,6 +727,21 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                                                           {dike.totalML.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                                                       </span>
                                                   )}
+                                              </td>
+
+                                              <td className="px-3 py-1 border-r dark:border-gray-600 align-middle">
+                                                  <div className="flex flex-col gap-1">
+                                                      <div className="flex justify-between items-center text-[8px] font-black uppercase">
+                                                          <span className="text-blue-600 dark:text-blue-400">{calculateDikeStats(dike).progress.toFixed(1)}%</span>
+                                                          <span className="text-gray-400 italic">{(measurements.filter(m => m.dikeId === dike.id).reduce((a, b) => a + (b.distancia || 0), 0)).toFixed(1)} ml</span>
+                                                      </div>
+                                                      <div className="h-1.5 w-full bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden border border-gray-200/50 dark:border-gray-600/50">
+                                                          <div 
+                                                              className="h-full bg-blue-600 rounded-full transition-all duration-1000 ease-out shadow-[0_0_8px_rgba(37,99,235,0.3)]"
+                                                              style={{ width: `${calculateDikeStats(dike).progress}%` }}
+                                                          />
+                                                      </div>
+                                                  </div>
                                               </td>
 
                                               <td className="px-2 py-1 text-center whitespace-nowrap align-middle">
@@ -932,6 +1070,66 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
               ))}
           </div>
       ) : null}
+
+      {showVBAModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-amber-50 dark:bg-amber-900/20">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-amber-100 dark:bg-amber-800 rounded-xl">
+                  <Terminal className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black text-amber-900 dark:text-white uppercase tracking-tight">Macro VBA de Importación</h2>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 font-bold">Sincronización automática Excel → Aplicación</p>
+                </div>
+              </div>
+              <button onClick={() => setShowVBAModal(false)} className="p-2 hover:bg-white/50 rounded-full transition-colors">
+                <X className="w-6 h-6 text-amber-400" />
+              </button>
+            </div>
+            
+            <div className="p-8 overflow-y-auto flex-1 space-y-6">
+              <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-2xl border border-blue-100 dark:border-blue-800 flex gap-4">
+                <Info className="w-6 h-6 text-blue-600 shrink-0" />
+                <div className="space-y-2">
+                  <h4 className="text-sm font-black text-blue-900 dark:text-white uppercase tracking-wider">¿Cómo usar este código?</h4>
+                  <ol className="text-xs text-blue-800 dark:text-blue-300 space-y-1 list-decimal ml-4 font-bold">
+                    <li>Abra su archivo de Excel generado (Libro Maestro).</li>
+                    <li>Presione <kbd className="bg-white px-1 rounded border shadow-sm">Alt + F11</kbd> para abrir el editor de VBA.</li>
+                    <li>Vaya a <span className="italic">Insertar &gt; Módulo</span>.</li>
+                    <li>Pegue el código que aparece a continuación.</li>
+                    <li>En Excel, puede asignar esta macro a un botón o ejecutarla con <kbd className="bg-white px-1 rounded border shadow-sm">Alt + F8</kbd>.</li>
+                  </ol>
+                </div>
+              </div>
+
+              <div className="relative group">
+                <div className="absolute right-4 top-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button onClick={copyVBACode} className="bg-amber-600 hover:bg-amber-700 text-white text-[10px] h-8 px-4">
+                    <Copy className="w-3 h-3 mr-2" /> Copiar Código
+                  </Button>
+                </div>
+                <pre className="bg-gray-900 text-amber-400 p-6 rounded-2xl overflow-x-auto font-mono text-[11px] leading-relaxed border-2 border-gray-800 shadow-inner custom-scrollbar">
+                  {vbaCode}
+                </pre>
+              </div>
+
+              <div className="flex items-center gap-2 p-4 bg-amber-50 dark:bg-amber-900/10 rounded-xl border border-amber-100 dark:border-amber-800">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                <p className="text-[10px] text-amber-800 dark:text-amber-300 font-bold">
+                  Asegúrese de que su Excel esté guardado como <span className="underline">Libro de Excel habilitado para macros (.xlsm)</span> para conservar el código.
+                </p>
+              </div>
+            </div>
+            
+            <div className="p-6 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setShowVBAModal(false)}>Cerrar</Button>
+              <Button onClick={copyVBACode} className="bg-amber-600">Copiar Código</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

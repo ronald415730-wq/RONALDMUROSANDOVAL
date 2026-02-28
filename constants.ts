@@ -234,6 +234,7 @@ export const INITIAL_BUDGET: BudgetSection[] = [
           { id: "101.B", code: "101.B", description: "TRÁMITE, GESTIÓN Y OBTENCIÓN DE PERMISOS PARA MANIPULACIÓN DE EXPLOSIVOS", unit: "glb", metrado: 1.00, price: 4141.55 },
           { id: "101.C", code: "101.C", description: "TRÁMITE, GESTIÓN Y OBTENCIÓN DE PERMISOS PARA ALMACENAMIENTO Y USO DE POLVORÍN", unit: "glb", metrado: 1.00, price: 5508.26 },
           { id: "103.A", code: "103.A", description: "INSTALACIÓN DE CAMPAMENTO, PATIO, TALLER Y OFICINAS", unit: "glb", metrado: 1.00, price: 293205.31 },
+          { id: "NUEVO.01", code: "NUEVO.01", description: "Nueva Partida", unit: "und", metrado: 0, price: 0 },
         ]
       },
       {

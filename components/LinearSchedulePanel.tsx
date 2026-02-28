@@ -1,9 +1,10 @@
 
 import React, { useState, useMemo, useEffect } from "react";
 import { DikeConfig, BudgetSection, ProgressEntry, Sector } from "../types";
-import { CalendarRange, Filter, Map, Layers, LayoutTemplate, Search, ArrowRight, FileSpreadsheet, Download } from "lucide-react";
+import { CalendarRange, Filter, Map, Layers, LayoutTemplate, Search, ArrowRight, FileSpreadsheet, Download, Activity, PieChart as PieChartIcon } from "lucide-react";
 import { Button } from "./Button";
 import * as XLSX from 'xlsx';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
 
 interface LinearSchedulePanelProps {
   dikes: DikeConfig[];
@@ -56,6 +57,36 @@ export const LinearSchedulePanel: React.FC<LinearSchedulePanelProps> = ({
   }, [filteredDikes, selectedDikeId]);
 
   const selectedDike = dikes.find(d => d.id === selectedDikeId);
+
+  // Calculate progress summary for the selected dike
+  const progressSummary = useMemo(() => {
+    if (!selectedDike) return { total: 0, executed: 0, percent: 0 };
+    
+    // Key activities for progress (same as ProgressControlPanel)
+    const keyActivities = ["403.A", "404.A", "404.B", "402.B"];
+    const dikeEntries = progressEntries.filter(e => e.dikeId === selectedDikeId);
+    
+    // Group by activity and find max length
+    const activityMaxLen: Record<string, number> = {};
+    dikeEntries.forEach(e => {
+        keyActivities.forEach(code => {
+            if (e.partida.startsWith(code)) {
+                activityMaxLen[code] = Math.max(activityMaxLen[code] || 0, e.longitud);
+            }
+        });
+    });
+
+    const executed = Object.values(activityMaxLen).reduce((a, b) => a + b, 0) / (keyActivities.length || 1);
+    const total = selectedDike.totalML || 1;
+    const percent = Math.min((executed / total) * 100, 100);
+
+    return { total, executed, percent };
+  }, [selectedDike, progressEntries, selectedDikeId]);
+
+  const chartData = useMemo(() => [
+    { name: 'Ejecutado', value: progressSummary.percent, fill: '#22c55e' },
+    { name: 'Pendiente', value: 100 - progressSummary.percent, fill: '#f3f4f6' }
+  ], [progressSummary]);
 
   // Helper: Parse PK string to meters
   const parsePk = (pkStr: string): number => {
@@ -330,38 +361,85 @@ export const LinearSchedulePanel: React.FC<LinearSchedulePanelProps> = ({
         </div>
 
         {/* Tabs and Legend Section */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-            <div className="flex p-1 bg-gray-100 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
-                <button 
-                    onClick={() => setActiveGroupFilter("TODOS")}
-                    className={`px-6 py-2 text-[10px] font-black rounded-lg transition-all uppercase tracking-widest ${activeGroupFilter === "TODOS" ? 'bg-white dark:bg-gray-800 text-blue-600 shadow-sm border border-gray-200 dark:border-gray-700' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
-                >
-                    TODOS
-                </button>
-                <button 
-                    onClick={() => setActiveGroupFilter("B1")}
-                    className={`px-6 py-2 text-[10px] font-black rounded-lg transition-all uppercase tracking-widest ${activeGroupFilter === "B1" ? 'bg-white dark:bg-gray-800 text-green-600 shadow-sm border border-gray-200 dark:border-gray-700' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
-                >
-                    B1 - DIQUE NUEVO
-                </button>
-                <button 
-                    onClick={() => setActiveGroupFilter("B2")}
-                    className={`px-6 py-2 text-[10px] font-black rounded-lg transition-all uppercase tracking-widest ${activeGroupFilter === "B2" ? 'bg-white dark:bg-gray-800 text-orange-600 shadow-sm border border-gray-200 dark:border-gray-700' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
-                >
-                    B2 - REFUERZO
-                </button>
+        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 mb-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <div className="flex p-1 bg-gray-100 dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800">
+                    <button 
+                        onClick={() => setActiveGroupFilter("TODOS")}
+                        className={`px-6 py-2 text-[10px] font-black rounded-lg transition-all uppercase tracking-widest ${activeGroupFilter === "TODOS" ? 'bg-white dark:bg-gray-800 text-blue-600 shadow-sm border border-gray-200 dark:border-gray-700' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+                    >
+                        TODOS
+                    </button>
+                    <button 
+                        onClick={() => setActiveGroupFilter("B1")}
+                        className={`px-6 py-2 text-[10px] font-black rounded-lg transition-all uppercase tracking-widest ${activeGroupFilter === "B1" ? 'bg-white dark:bg-gray-800 text-green-600 shadow-sm border border-gray-200 dark:border-gray-700' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+                    >
+                        B1 - DIQUE NUEVO
+                    </button>
+                    <button 
+                        onClick={() => setActiveGroupFilter("B2")}
+                        className={`px-6 py-2 text-[10px] font-black rounded-lg transition-all uppercase tracking-widest ${activeGroupFilter === "B2" ? 'bg-white dark:bg-gray-800 text-orange-600 shadow-sm border border-gray-200 dark:border-gray-700' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+                    >
+                        B2 - REFUERZO
+                    </button>
+                </div>
+
+                <div className="flex items-center gap-6 px-4 py-2 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-800">
+                    <div className="flex items-center gap-2">
+                        <div className="w-3.5 h-3.5 rounded border border-gray-300 bg-white dark:bg-gray-800 shadow-inner"></div>
+                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Pendiente</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="w-3.5 h-3.5 rounded border border-green-600 bg-green-500 shadow-inner"></div>
+                        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Ejecutado</span>
+                    </div>
+                </div>
             </div>
 
-            <div className="flex items-center gap-6 px-4 py-2 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-800">
-                <div className="flex items-center gap-2">
-                    <div className="w-3.5 h-3.5 rounded border border-gray-300 bg-white dark:bg-gray-800 shadow-inner"></div>
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Pendiente</span>
+            {selectedDike && (
+                <div className="flex items-center gap-4 bg-blue-50/50 dark:bg-blue-900/10 p-3 rounded-2xl border border-blue-100 dark:border-blue-800/50 min-w-[300px]">
+                    <div className="w-16 h-16 relative">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie
+                                    data={chartData}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={20}
+                                    outerRadius={28}
+                                    paddingAngle={0}
+                                    dataKey="value"
+                                    stroke="none"
+                                    startAngle={90}
+                                    endAngle={-270}
+                                >
+                                    {chartData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                                    ))}
+                                </Pie>
+                            </PieChart>
+                        </ResponsiveContainer>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-[10px] font-black text-blue-700 dark:text-blue-300">{progressSummary.percent.toFixed(0)}%</span>
+                        </div>
+                    </div>
+                    <div className="flex flex-col">
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Avance del Dique</span>
+                        <span className="text-sm font-black text-gray-900 dark:text-white truncate max-w-[150px]">{selectedDike.name}</span>
+                        <div className="flex items-center gap-2 mt-1">
+                            <div className="flex flex-col">
+                                <span className="text-[9px] font-bold text-gray-400 uppercase">Ejecutado</span>
+                                <span className="text-[10px] font-black text-green-600">{progressSummary.executed.toLocaleString()} ML</span>
+                            </div>
+                            <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1"></div>
+                            <div className="flex flex-col">
+                                <span className="text-[9px] font-bold text-gray-400 uppercase">Total</span>
+                                <span className="text-[10px] font-black text-gray-600 dark:text-gray-400">{progressSummary.total.toLocaleString()} ML</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <div className="w-3.5 h-3.5 rounded border border-green-600 bg-green-500 shadow-inner"></div>
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Ejecutado</span>
-                </div>
-            </div>
+            )}
         </div>
 
         {selectedDike ? (

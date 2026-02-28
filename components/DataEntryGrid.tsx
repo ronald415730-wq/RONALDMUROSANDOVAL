@@ -2,8 +2,10 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { MeasurementEntry, DikeConfig, Sector, BudgetSection } from "../types";
 import { ExcelService } from "../services/excelService";
-import { Trash2, Upload, AlertCircle, PlusCircle, Database, Settings, Filter, FileText, ChevronDown, FileSpreadsheet, ArrowUp, ArrowDown, X, FileUp, CheckSquare, Download, HelpCircle, Info } from "lucide-react";
+import * as XLSX from "xlsx";
+import { Undo2, Redo2, Eraser, Trash2, Upload, AlertCircle, PlusCircle, Plus, Database, Settings, Filter, FileText, ChevronDown, FileSpreadsheet, ArrowUp, ArrowDown, X, FileUp, CheckSquare, Download, HelpCircle, Info, TrendingUp, PieChart as PieChartIcon } from "lucide-react";
 import { Button } from "./Button";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
 interface DataEntryGridProps {
   dike: DikeConfig | null;
@@ -21,6 +23,11 @@ interface DataEntryGridProps {
   onFullImport: (data: any) => void;
   filterSectorId?: string;
   filterDikeId?: string;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onClear?: () => void;
 }
 
 const ColumnImport = ({ onImport, label }: { onImport: (vals: string[]) => void, label?: string }) => {
@@ -146,14 +153,14 @@ const GridEditableCell = ({
     return (
         <div 
             onClick={() => setIsEditing(true)} 
-            className={`w-full h-full px-1 py-0.5 cursor-text hover:bg-blue-50/80 transition-colors relative min-h-[20px] flex items-center border border-transparent hover:border-blue-200 ${type === 'number' ? 'justify-end' : 'justify-start'} ${className}`}
+            className={`w-full h-full px-1 py-0.5 cursor-text transition-colors relative min-h-[20px] flex items-center border border-transparent ${!isValid ? 'bg-red-50 hover:bg-red-100 border-red-200 text-red-700' : 'hover:bg-blue-50/80 hover:border-blue-200'} ${type === 'number' ? 'justify-end' : 'justify-start'} ${className}`}
         >
             {(value !== undefined && value !== null && value !== "") 
                 ? (typeof value === 'number' ? value.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 3}) : value) 
                 : <span className="text-gray-300">-</span>}
             {!isValid && (
                 <div className="absolute right-0 top-1/2 -translate-y-1/2 text-red-500 pr-1" title={errorMessage}>
-                    <AlertCircle className="w-2 h-2" />
+                    <AlertCircle className="w-3 h-3" />
                 </div>
             )}
         </div>
@@ -213,13 +220,19 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
     dike, 
     entries, 
     customColumns,
+    allDikes,
     onAddEntry, 
     onUpdateEntries, 
     onDeleteEntry,
     onAddColumn,
     onDeleteColumn,
     filterSectorId = "ALL",
-    filterDikeId = "ALL"
+    filterDikeId = "ALL",
+    onUndo,
+    onRedo,
+    canUndo,
+    canRedo,
+    onClear
 }) => {
   const [newPk, setNewPk] = useState("");
   const [newDistancia, setNewDistancia] = useState("");
@@ -228,6 +241,7 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
   const [newIntervencion, setNewIntervencion] = useState("PROTECCION DE TALUD CON ENROCADO");
   
   const [showColumnManager, setShowColumnManager] = useState(false);
+  const [newColName, setNewColName] = useState("");
   const [columnAliases, setColumnAliases] = useState<Record<string, string>>({});
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>({});
   const [showFilters, setShowFilters] = useState(false);
@@ -239,6 +253,9 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
   const [pkError, setPkError] = useState<string | null>(null);
   const gridContainerRef = useRef<HTMLDivElement>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
+
+  const executedML = useMemo(() => entries.reduce((acc, entry) => acc + (entry.distancia || 0), 0), [entries]);
+  const progressPercent = dike?.totalML && dike.totalML > 0 ? (executedML / dike.totalML) * 100 : 0;
 
   const ALL_COLUMNS = [
     { id: 'pk', label: 'Progresiva' },
@@ -252,10 +269,10 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
     { id: 'item402B_MM', label: '402.B CORTE TALUD M.M.', unit: 'm2' },
     { id: 'item402E', label: '402.E CORTE UÑA', unit: 'm2' },
     { id: 'item402E_MM', label: '402.E CORTE UÑA M.M.', unit: 'm2' },
-    { id: 'item404A', label: '404.A/404.B ENROCADO TALUD', unit: 'm2' },
-    { id: 'item404A_MM', label: '404.A/404.B ENROCADO TALUD M.M.', unit: 'm2' },
-    { id: 'item404D', label: '404.D/404.E ENROCADO UÑA', unit: 'm2' },
-    { id: 'item404D_MM', label: '404.D/404.E ENROCADO UÑA M.M.', unit: 'm2' },
+    { id: 'item404A', label: '404.A/404.B/404.G ENROCADO TALUD', unit: 'm2' },
+    { id: 'item404A_MM', label: '404.A/404.B/404.G ENROCADO TALUD M.M.', unit: 'm2' },
+    { id: 'item404D', label: '404.D/404.E/404.H ENROCADO UÑA', unit: 'm2' },
+    { id: 'item404D_MM', label: '404.D/404.E/404.H ENROCADO UÑA M.M.', unit: 'm2' },
     { id: 'item413A', label: '413.A RELLENO MATERIAL PROPIO', unit: 'm2' },
     { id: 'item413A_MM', label: '413.A RELLENO MATERIAL PROPIO M.M.', unit: 'm2' },
     { id: 'item412A', label: '412.A AFIRMADO', unit: 'm2' },
@@ -276,7 +293,14 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
       return Object.entries(filters).every(([key, value]) => {
         if (!value) return true;
         const entryValue = String((entry as any)[key] || '').toLowerCase();
-        return entryValue.includes(String(value).toLowerCase());
+        const filterValue = String(value).toLowerCase();
+        
+        // Exact match for specific fields
+        if (['tipoTerreno', 'tipoEnrocado'].includes(key)) {
+          return entryValue === filterValue;
+        }
+        
+        return entryValue.includes(filterValue);
       });
     });
   }, [entries, filters]);
@@ -291,16 +315,46 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
     return parseFloat(clean) || 0;
   };
 
-  const validatePkFormat = (val: string): boolean => {
+  const validatePkFormat = (val: any): boolean => {
     if (!val) return true;
-    return /^(\d+\s*\+\s*\d+(\.\d+)?|\d+(\.\d+)?)$/.test(val.trim());
+    const str = String(val).trim();
+    return /^(\d+\s*\+\s*\d+(\.\d+)?|\d+(\.\d+)?)$/.test(str);
   };
 
-  const isPkUnique = (pk: string, excludeId?: string): boolean => {
-    const cleanPk = pk.trim();
+  const duplicatePksMap = useMemo(() => {
+    const counts: Record<string, number> = {};
+    entries.forEach(e => {
+      const pk = String(e.pk || "").trim();
+      if (pk) {
+        // Use composite key to ensure duplicates are per dike
+        const key = `${e.dikeId}_${pk}`;
+        counts[key] = (counts[key] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [entries]);
+
+  const isPkUnique = (pk: any, entryId: string, dikeId: string): boolean => {
+    const cleanPk = String(pk || "").trim();
     if (!cleanPk) return true;
-    return !entries.some(e => e.pk.trim() === cleanPk && e.id !== excludeId);
+    
+    const key = `${dikeId}_${cleanPk}`;
+    const count = duplicatePksMap[key] || 0;
+    
+    const entry = entries.find(e => e.id === entryId);
+    const originalPk = String(entry?.pk || "").trim();
+    const originalDikeId = entry?.dikeId;
+
+    if (cleanPk === originalPk && dikeId === originalDikeId) {
+      return count <= 1;
+    } else {
+      return count === 0;
+    }
   };
+
+  const hasDuplicates = useMemo(() => {
+    return Object.values(duplicatePksMap).some((count: any) => (count as number) > 1);
+  }, [duplicatePksMap]);
 
   const autoCalculatedDistance = useMemo(() => {
     if (!newPk || !validatePkFormat(newPk)) return "0.000";
@@ -319,7 +373,7 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
   }, [newPk, entries]);
 
   useEffect(() => {
-    if (newPk && validatePkFormat(newPk) && isPkUnique(newPk)) {
+    if (newPk && validatePkFormat(newPk) && isPkUnique(newPk, "", dike?.id || "")) {
       setNewDistancia(autoCalculatedDistance);
     }
   }, [autoCalculatedDistance, newPk]);
@@ -367,7 +421,7 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
   const handlePkChange = (val: string) => {
     setNewPk(val);
     if (val && !validatePkFormat(val)) setPkError("Error Formato");
-    else if (val && !isPkUnique(val)) setPkError("PK Duplicado");
+    else if (val && dike && !isPkUnique(val, "NEW", dike.id)) setPkError("PK Duplicado");
     else setPkError(null);
   };
 
@@ -408,72 +462,88 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
       if (!file || !dike) return;
 
       try {
-          const rows = await ExcelService.importTable<any>(file);
-          
-          if (rows.length === 0) {
-              alert("El archivo no contiene datos.");
-              return;
-          }
+          const reader = new FileReader();
+          reader.onload = async (evt) => {
+              try {
+                  const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+                  const workbook = XLSX.read(data, { type: 'array', codepage: 65001 });
+                  
+                  // Try to find a sheet matching the dike name, otherwise use the first one
+                  let sheetName = workbook.SheetNames.find(name => name.toUpperCase() === dike.name.toUpperCase() || name.toUpperCase() === dike.id.toUpperCase());
+                  if (!sheetName) sheetName = workbook.SheetNames[0];
+                  
+                  const sheet = workbook.Sheets[sheetName];
+                  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as any[];
+                  
+                  if (rows.length === 0) {
+                      alert("El archivo o la hoja seleccionada no contienen datos.");
+                      return;
+                  }
 
-          // Filter out rows that might be headers or units (e.g. "(m)")
-          const dataRows = rows.filter(row => {
-              const values = Object.values(row);
-              if (values.length === 0) return false;
-              const firstVal = String(values[0] || "").trim();
-              // Skip if it looks like a unit or is empty
-              if (!firstVal || firstVal.startsWith('(')) return false;
-              // Skip if it's just a repeat of headers
-              if (firstVal.toUpperCase() === "PK" || firstVal.toUpperCase() === "PROGRESIVA") return false;
-              return true;
-          });
-
-          const newEntries: MeasurementEntry[] = dataRows.map((row, idx) => {
-              const entry: any = {
-                  id: `IMPORT_${Date.now()}_${idx}`,
-                  dikeId: dike.id,
-                  pk: "", distancia: 0, tipoTerreno: "B1", tipoEnrocado: "TIPO 2", intervencion: "IMPORTADO",
-                  item501A_Carguio: 1
-              };
-
-              ALL_COLUMNS.forEach(col => {
-                  const label = col.label.toUpperCase();
-                  const alias = (columnAliases[col.id] || "").toUpperCase();
-                  const id = col.id.toUpperCase();
-
-                  // Try to find matching key in row
-                  const matchKey = Object.keys(row).find(k => {
-                      const uk = k.trim().toUpperCase();
-                      return uk === label || uk === alias || uk === id;
+                  // Filter out rows that might be headers or units
+                  const dataRows = rows.filter(row => {
+                      const values = Object.values(row);
+                      if (values.length === 0) return false;
+                      const firstVal = String(values[0] || "").trim();
+                      if (!firstVal || firstVal.startsWith('(')) return false;
+                      if (firstVal.toUpperCase() === "PK" || firstVal.toUpperCase() === "PROGRESIVA") return false;
+                      return true;
                   });
 
-                  if (matchKey) {
-                      let val = row[matchKey];
-                      if (val !== undefined && val !== null) {
-                          if (typeof val === 'string' && !['pk', 'intervencion', 'tipoTerreno', 'tipoEnrocado'].includes(col.id)) {
-                              val = parseFloat(val.replace(/,/g, '')) || 0;
+                  const newEntries: MeasurementEntry[] = dataRows.map((row, idx) => {
+                      const entry: any = {
+                          id: `IMPORT_${Date.now()}_${idx}`,
+                          dikeId: dike.id,
+                          pk: "", distancia: 0, tipoTerreno: "B1", tipoEnrocado: "TIPO 2", intervencion: "IMPORTADO",
+                          item501A_Carguio: 1
+                      };
+
+                      ALL_COLUMNS.forEach(col => {
+                          const label = col.label.toUpperCase();
+                          const alias = (columnAliases[col.id] || "").toUpperCase();
+                          const id = col.id.toUpperCase();
+
+                          // Try to find matching key in row
+                          const matchKey = Object.keys(row).find(k => {
+                              const uk = k.trim().toUpperCase();
+                              // Common variations for PK
+                              if (col.id === 'pk' && (uk === "PROG" || uk === "PROGRESIVA" || uk === "PK")) return true;
+                              return uk === label || uk === alias || uk === id;
+                          });
+
+                          if (matchKey) {
+                              let val = row[matchKey];
+                              if (val !== undefined && val !== null) {
+                                  if (typeof val === 'string' && !['pk', 'intervencion', 'tipoTerreno', 'tipoEnrocado'].includes(col.id)) {
+                                      val = parseFloat(val.replace(/,/g, '')) || 0;
+                                  }
+                                  entry[col.id] = val;
+                              }
                           }
-                          entry[col.id] = val;
-                      }
+                      });
+
+                      return entry as MeasurementEntry;
+                  });
+
+                  if (newEntries.length === 0) {
+                      alert("No se pudieron procesar registros válidos del archivo.");
+                      return;
                   }
-              });
 
-              return entry as MeasurementEntry;
-          });
-
-          if (newEntries.length === 0) {
-              alert("No se pudieron procesar registros válidos del archivo.");
-              return;
-          }
-
-          const choice = confirm(`Se han detectado ${newEntries.length} registros válidos.\n\n- Aceptar: REEMPLAZAR los datos actuales.\n- Cancelar: AGREGAR a los datos existentes.`);
-          
-          if (choice) {
-              onUpdateEntries(newEntries);
-          } else {
-              // Append logic
-              const updatedEntries = [...entries, ...newEntries];
-              onUpdateEntries(updatedEntries);
-          }
+                  const choice = confirm(`Se han detectado ${newEntries.length} registros válidos.\n\n- Aceptar: REEMPLAZAR los datos actuales.\n- Cancelar: AGREGAR a los datos existentes.`);
+                  
+                  if (choice) {
+                      onUpdateEntries(newEntries);
+                  } else {
+                      const updatedEntries = [...entries, ...newEntries];
+                      onUpdateEntries(updatedEntries);
+                  }
+              } catch (err) {
+                  console.error("Import processing error:", err);
+                  alert("Error al procesar los datos del archivo.");
+              }
+          };
+          reader.readAsArrayBuffer(file);
       } catch (err) {
           console.error("Import error:", err);
           alert("Error al importar el archivo. Verifique que el formato sea correcto.");
@@ -516,6 +586,34 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
     onAddEntry(newEntry);
     setNewPk("");
     setNewDistancia("");
+  };
+
+  const handleAddColumnLocal = () => {
+    const name = newColName.trim();
+    if (!name) return;
+
+    // Standard columns to avoid conflicts
+    const standardColumns = [
+      'pk', 'distancia', 'tipoTerreno', 'tipoEnrocado', 'intervencion', 'id', 'dikeId',
+      'item401A', 'item402B', 'item402B_MM', 'item402C', 'item402D', 'item402E', 'item402E_MM',
+      'item403A', 'item403A_MM', 'item403B', 'item404A', 'item404A_MM', 'item404B', 'item404D',
+      'item404D_MM', 'item404E', 'item404G', 'item404H', 'item405A', 'item406A', 'item407A',
+      'item408A', 'item409A', 'item409B', 'item410A', 'item410B', 'item412A', 'item413A',
+      'item413A_MM', 'item414A', 'item415', 'item416A', 'item501A_Carguio'
+    ];
+
+    if (standardColumns.some(c => c.toLowerCase() === name.toLowerCase())) {
+        alert(`"${name}" es un nombre reservado para columnas estándar.`);
+        return;
+    }
+
+    if (customColumns.some(c => c.toLowerCase() === name.toLowerCase())) {
+        alert(`La columna "${name}" ya existe.`);
+        return;
+    }
+
+    onAddColumn(name);
+    setNewColName("");
   };
 
   const ColumnHeader = ({ columnId, label, subHeader = false }: { columnId: string, label: string, subHeader?: boolean }) => {
@@ -565,9 +663,111 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
                 <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest">Hoja de Metrados</p>
               </div>
           </div>
+
+          <div className="flex-1 max-w-sm px-4 hidden lg:block">
+              <div className="bg-blue-50/50 dark:bg-blue-900/10 rounded-xl p-2 border border-blue-100 dark:border-blue-800/50 flex items-center gap-3">
+                  <div className="w-12 h-12 shrink-0">
+                      <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                              <Pie
+                                  data={[
+                                      { name: 'Ejecutado', value: executedML },
+                                      { name: 'Restante', value: Math.max(0, dike.totalML - executedML) }
+                                  ]}
+                                  cx="50%"
+                                  cy="50%"
+                                  innerRadius={15}
+                                  outerRadius={22}
+                                  paddingAngle={2}
+                                  dataKey="value"
+                                  stroke="none"
+                              >
+                                  <Cell fill="#2563eb" />
+                                  <Cell fill="#e5e7eb" />
+                              </Pie>
+                          </PieChart>
+                      </ResponsiveContainer>
+                  </div>
+                  
+                  <div className="flex-1">
+                      <div className="flex items-center justify-between mb-1 px-1">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></div>
+                            <span className="text-[9px] font-black text-blue-900 dark:text-blue-100 uppercase tracking-tight">Estado de Avance</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] font-black text-blue-700 dark:text-blue-400">{progressPercent.toFixed(1)}%</span>
+                            <TrendingUp className="w-3 h-3 text-blue-600" />
+                          </div>
+                      </div>
+                      
+                      <div className="h-2 w-full bg-gray-200/50 dark:bg-gray-700/50 rounded-full overflow-hidden border border-gray-200/50 dark:border-gray-600/50 relative">
+                          <div 
+                              className="h-full bg-gradient-to-r from-blue-500 to-blue-700 rounded-full transition-all duration-1000 ease-out shadow-[0_0_12px_rgba(37,99,235,0.3)]"
+                              style={{ width: `${Math.min(100, progressPercent)}%` }}
+                          />
+                      </div>
+                      
+                      <div className="flex justify-between mt-1 px-1">
+                        <span className="text-[8px] font-black text-gray-700 dark:text-gray-300">{executedML.toLocaleString()} ml</span>
+                        <span className="text-[8px] font-black text-gray-400 uppercase">Meta: {dike.totalML.toLocaleString()} ml</span>
+                      </div>
+                  </div>
+              </div>
+          </div>
+
           <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-gray-50 dark:bg-gray-900/50 px-2 py-1 rounded-lg border border-gray-100 dark:border-gray-800">
+                <span className="text-[9px] font-black text-gray-400 uppercase tracking-wider">Terreno:</span>
+                <select 
+                  className="text-[10px] font-bold bg-transparent outline-none text-blue-600 cursor-pointer"
+                  value={filters['tipoTerreno'] || ''}
+                  onChange={e => setFilters(p => ({...p, 'tipoTerreno': e.target.value}))}
+                >
+                  <option value="">TODOS</option>
+                  <option value="B1">B1</option>
+                  <option value="B2">B2</option>
+                </select>
+              </div>
+
+              <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-1"></div>
+
               <Button onClick={() => setShowColumnManager(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] h-8 px-3 font-bold rounded-lg transition-all shadow-sm"><Settings className="w-3.5 h-3.5 mr-1.5" /> Columnas</Button>
               <Button variant={showFilters ? "primary" : "outline"} onClick={() => setShowFilters(!showFilters)} className="text-[10px] h-8 px-3 font-bold rounded-lg"><Filter className="w-3.5 h-3.5 mr-1.5" /> Filtros</Button>
+              
+              <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-1"></div>
+
+              <div className="flex items-center gap-1">
+                <Button 
+                  variant="outline" 
+                  onClick={onUndo} 
+                  disabled={!canUndo} 
+                  className={`text-[10px] h-8 px-2 font-bold rounded-lg ${!canUndo ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
+                  title="Atrás (Deshacer)"
+                >
+                  <Undo2 className="w-3.5 h-3.5" />
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={onRedo} 
+                  disabled={!canRedo} 
+                  className={`text-[10px] h-8 px-2 font-bold rounded-lg ${!canRedo ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
+                  title="Adelante (Rehacer)"
+                >
+                  <Redo2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+
+              <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-1"></div>
+
+              <Button 
+                variant="outline" 
+                onClick={onClear} 
+                className="text-[10px] h-8 px-3 font-bold rounded-lg text-red-600 border-red-100 hover:bg-red-50"
+                title="Limpiar Tabla"
+              >
+                <Eraser className="w-3.5 h-3.5 mr-1.5" /> Limpiar
+              </Button>
               
               <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-1"></div>
 
@@ -652,13 +852,66 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
         </div>
       )}
 
+      {hasDuplicates && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex flex-col gap-3 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-red-100 p-2 rounded-full">
+                <AlertCircle className="w-4 h-4 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-[10px] font-black text-red-900 uppercase tracking-tight">Partidas Duplicadas Detectadas</h3>
+                <p className="text-[9px] text-red-700">Se han encontrado múltiples registros con el mismo código PK dentro de un mismo dique. Por favor, revise los siguientes puntos:</p>
+              </div>
+            </div>
+            {filters.pk && (
+              <Button 
+                variant="outline"
+                onClick={() => setFilters(p => ({ ...p, pk: "" }))}
+                className="text-[9px] h-7 border-gray-200 text-gray-600 hover:bg-gray-100 font-bold"
+              >
+                Limpiar Filtro
+              </Button>
+            )}
+          </div>
+          
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(duplicatePksMap)
+              .filter(([_, count]) => (count as number) > 1)
+              .map(([key, count]) => {
+                const [dId, pk] = key.split('_');
+                const dikeName = allDikes?.find(d => d.id === dId)?.name || dId;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      setShowFilters(true);
+                      setFilters(p => ({ ...p, pk }));
+                    }}
+                    className={`px-2 py-1 rounded-md text-[8px] font-bold border transition-all flex items-center gap-1.5 ${
+                      filters.pk === pk 
+                      ? 'bg-red-600 border-red-700 text-white shadow-sm' 
+                      : 'bg-white border-red-200 text-red-700 hover:bg-red-50'
+                    }`}
+                  >
+                    <span className="opacity-70">{dikeName}:</span> {pk}
+                    <span className={`px-1 rounded-full text-[7px] ${filters.pk === pk ? 'bg-white/20' : 'bg-red-100'}`}>
+                      {count as number} registros
+                    </span>
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm flex-1 relative flex flex-col">
         <div className="overflow-auto flex-1 custom-scrollbar" ref={gridContainerRef}>
             <table className="w-max text-[8px] text-left border-collapse table-fixed">
             <thead className="bg-[#003366] text-white sticky top-0 z-[40] shadow-md">
                 {/* Row 1: Labels */}
                 <tr className="text-center font-black border-b border-white/10 h-12">
-                    {ALL_COLUMNS.filter(c => c.id !== 'item501A_Carguio').map(col => (
+                    {ALL_COLUMNS.filter(c => c.id !== 'item501A_Carguio' && columnVisibility[c.id] !== false).map(col => (
                         <th key={col.id} className={`px-2 border-r border-white/5 ${['pk', 'distancia', 'tipoTerreno', 'tipoEnrocado'].includes(col.id) ? 'w-[80px]' : 'min-w-[100px]'} text-[8px] leading-tight uppercase tracking-wider`}>
                             {columnAliases[col.id] || col.label}
                         </th>
@@ -667,7 +920,7 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
                 </tr>
                 {/* Row 2: Units */}
                 <tr className="text-center text-[8px] font-bold bg-[#003366] h-7 border-b border-white/5">
-                    {ALL_COLUMNS.filter(c => c.id !== 'item501A_Carguio').map(col => (
+                    {ALL_COLUMNS.filter(c => c.id !== 'item501A_Carguio' && columnVisibility[c.id] !== false).map(col => (
                         <th key={col.id} className="px-2 border-r border-white/5 opacity-60 italic">
                             {col.unit ? `(${col.unit})` : ''}
                         </th>
@@ -677,7 +930,7 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
                 {/* Row 3: Filters */}
                 {showFilters && (
                     <tr className="bg-[#002244] h-8 border-b border-white/10">
-                        {ALL_COLUMNS.filter(c => c.id !== 'item501A_Carguio').map(col => (
+                        {ALL_COLUMNS.filter(c => c.id !== 'item501A_Carguio' && columnVisibility[c.id] !== false).map(col => (
                             <th key={col.id} className="px-1 border-r border-white/5">
                                 {col.id === 'tipoTerreno' ? (
                                     <select 
@@ -717,7 +970,7 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700 bg-white font-mono">
                 {filteredEntries.map((entry) => (
                     <tr key={entry.id} className="hover:bg-blue-50/30 transition-colors">
-                        {ALL_COLUMNS.filter(c => c.id !== 'item501A_Carguio').map(col => (
+                        {ALL_COLUMNS.filter(c => c.id !== 'item501A_Carguio' && columnVisibility[c.id] !== false).map(col => (
                             <td key={col.id} className={`border-r border-gray-100 ${['pk', 'distancia', 'tipoTerreno', 'tipoEnrocado'].includes(col.id) ? 'bg-blue-50/20' : ''}`}>
                                 {col.id === 'tipoTerreno' ? (
                                     <GridEditableSelect value={entry.tipoTerreno} onChange={v => handleCellChange('tipoTerreno', v, entry.id)} options={['B1', 'B2']} />
@@ -729,14 +982,14 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
                                         value={entry[col.id]} 
                                         onChange={v => handleCellChange(col.id, v, entry.id)} 
                                         validate={
-                                            col.id === 'pk' ? (v => validatePkFormat(v) && isPkUnique(v, entry.id)) :
-                                            col.id === 'distancia' ? (v => !isNaN(Number(v)) && Number(v) >= 0) :
-                                            undefined
+                                            col.id === 'pk' ? (v => validatePkFormat(v) && isPkUnique(v, entry.id, entry.dikeId)) :
+                                            ['distancia', 'intervencion', 'tipoTerreno', 'tipoEnrocado'].includes(col.id) ? (col.id === 'distancia' ? (v => !isNaN(Number(v)) && Number(v) > 0) : undefined) :
+                                            (v => !isNaN(Number(v)) && Number(v) >= 0)
                                         }
                                         errorMessage={
-                                            col.id === 'pk' ? "PK inválido o duplicado" :
-                                            col.id === 'distancia' ? "Distancia inválida" :
-                                            undefined
+                                            col.id === 'pk' ? "PK inválido o duplicado en este dique" :
+                                            col.id === 'distancia' ? "Distancia debe ser mayor a 0" :
+                                            "Debe ser un número positivo"
                                         }
                                     />
                                 )}
@@ -757,7 +1010,7 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
                 {/* Row: Column Totals (Areas) */}
                 <tr className="bg-gray-100/80 h-6 text-gray-600">
                     <td className="border-r border-gray-200 text-center bg-blue-50/20">TOTALES</td>
-                    {ALL_COLUMNS.filter(c => c.id !== 'item501A_Carguio').slice(1).map(col => (
+                    {ALL_COLUMNS.filter(c => c.id !== 'item501A_Carguio' && c.id !== 'pk' && columnVisibility[c.id] !== false).map(col => (
                         <td key={col.id} className="border-r border-gray-200 text-right px-1">
                             {['tipoTerreno', 'tipoEnrocado', 'intervencion'].includes(col.id) ? '' : (columnTotals.totals[col.id] > 0 ? columnTotals.totals[col.id].toFixed(2) : '')}
                         </td>
@@ -768,7 +1021,7 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
                 {/* Row: Column Volume Totals */}
                 <tr className="bg-indigo-50/80 h-7 text-indigo-900">
                     <td className="border-r border-indigo-200 text-center">VOLÚMENES</td>
-                    {ALL_COLUMNS.filter(c => c.id !== 'item501A_Carguio').slice(1).map(col => (
+                    {ALL_COLUMNS.filter(c => c.id !== 'item501A_Carguio' && c.id !== 'pk' && columnVisibility[c.id] !== false).map(col => (
                         <td key={col.id} className="border-r border-indigo-200 text-right px-1 font-black">
                             {['distancia', 'tipoTerreno', 'tipoEnrocado', 'intervencion'].includes(col.id) ? '' : (columnTotals.volumeTotals[col.id] > 0 ? columnTotals.volumeTotals[col.id].toLocaleString('en-US', { maximumFractionDigits: 1 }) : '')}
                         </td>
@@ -786,7 +1039,16 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
                             className={`w-full bg-white outline-none px-1 h-full text-[9px] font-mono border-2 rounded ${pkError ? 'text-red-600 border-red-500' : 'border-blue-300'}`} 
                         />
                     </td>
-                    <td colSpan={100} className="px-2 py-1"><Button onClick={handleAddRowAtEnd} disabled={!newPk || !!pkError} className="text-[9px] h-6 bg-[#003366] px-4 font-bold text-white shadow-md border-0"><PlusCircle className="w-3.5 h-3.5 mr-1" /> AGREGAR PK FINAL</Button></td>
+                    <td colSpan={100} className="px-2 py-1">
+                        <Button 
+                            onClick={handleAddRowAtEnd} 
+                            disabled={!newPk || !!pkError} 
+                            className="w-7 h-7 p-0 bg-[#003366] text-white shadow-md border-0 rounded-full hover:scale-110 active:scale-95 transition-transform flex items-center justify-center"
+                            title="Agregar PK Final"
+                        >
+                            <Plus className="w-4 h-4" />
+                        </Button>
+                    </td>
                 </tr>
             </tfoot>
             </table>
@@ -809,6 +1071,87 @@ export const DataEntryGrid: React.FC<DataEntryGridProps> = ({
               <span className="text-[8px] opacity-70 italic font-mono uppercase">Control de Áreas y Volúmenes OHLA</span>
           </div>
       </div>
+
+      {showColumnManager && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-indigo-50 dark:bg-indigo-900/20">
+              <div className="flex items-center gap-2">
+                <Settings className="w-5 h-5 text-indigo-600" />
+                <h2 className="text-lg font-bold text-indigo-900 dark:text-white">Gestión de Columnas</h2>
+              </div>
+              <button onClick={() => setShowColumnManager(false)} className="p-1 hover:bg-white/50 rounded-full transition-colors">
+                <X className="w-5 h-5 text-indigo-400" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1 space-y-6">
+              {/* Add New Column Section */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">Añadir Atributo Extra</h3>
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    placeholder="Nombre de la nueva columna (ej: Densidad, Humedad...)"
+                    className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl text-xs bg-white dark:bg-gray-900 outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                    value={newColName}
+                    onChange={(e) => setNewColName(e.target.value)}
+                  />
+                  <Button onClick={handleAddColumnLocal} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6">
+                    <PlusCircle className="w-4 h-4 mr-2" /> Añadir
+                  </Button>
+                </div>
+              </div>
+
+              {/* Column List Section */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">Configuración de Columnas</h3>
+                <div className="grid grid-cols-1 gap-2">
+                  {ALL_COLUMNS.map(col => (
+                    <div key={col.id} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-800 group hover:border-indigo-200 transition-all">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-gray-900 dark:text-white">{col.label}</span>
+                          {col.isCustom && <span className="text-[8px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full font-black uppercase">Extra</span>}
+                        </div>
+                        <input 
+                          type="text" 
+                          placeholder="Alias (opcional)..."
+                          className="w-full mt-1 px-2 py-1 text-[9px] bg-transparent border-b border-gray-200 dark:border-gray-700 outline-none focus:border-indigo-500 transition-colors"
+                          value={columnAliases[col.id] || ""}
+                          onChange={e => setColumnAliases(p => ({...p, [col.id]: e.target.value}))}
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => setColumnVisibility(p => ({...p, [col.id]: columnVisibility[col.id] === false}))}
+                          className={`p-2 rounded-lg transition-all ${columnVisibility[col.id] !== false ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400 bg-gray-100'}`}
+                          title={columnVisibility[col.id] !== false ? "Visible" : "Oculto"}
+                        >
+                          {columnVisibility[col.id] !== false ? <CheckSquare className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                        </button>
+                        {col.isCustom && (
+                          <button 
+                            onClick={() => onDeleteColumn(col.id)}
+                            className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                            title="Eliminar Columna"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex justify-end">
+              <Button onClick={() => setShowColumnManager(false)} className="bg-indigo-600">Listo</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

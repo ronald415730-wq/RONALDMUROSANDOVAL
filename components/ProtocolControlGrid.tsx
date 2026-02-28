@@ -132,6 +132,27 @@ export const ProtocolControlGrid: React.FC<ProtocolControlGridProps> = ({
     onUpdateProtocols(newProtocols);
   };
 
+  const handleUpdateValuationMonth = (protId: string, itemId: string, value: string) => {
+    const existingIdx = protocols.findIndex(p => p.id === protId);
+    let newProtocols = [...protocols];
+    
+    if (existingIdx !== -1) {
+      newProtocols[existingIdx] = { 
+        ...newProtocols[existingIdx], 
+        valuationMonths: { ...(newProtocols[existingIdx].valuationMonths || {}), [itemId]: value } 
+      };
+    } else {
+      const protToCreate = syncedProtocols.find(p => p.id === protId);
+      if (protToCreate) {
+        newProtocols.push({ 
+          ...protToCreate, 
+          valuationMonths: { [itemId]: value } 
+        });
+      }
+    }
+    onUpdateProtocols(newProtocols);
+  };
+
   const handleExport = () => {
     const exportData = filteredProtocols.map(p => {
       const row: any = {
@@ -402,7 +423,12 @@ export const ProtocolControlGrid: React.FC<ProtocolControlGridProps> = ({
                 <th className="px-2 py-1 border-r border-white/10">B1 / B2</th>
                 <th className="px-2 py-1 border-r border-white/10">MATERIAL A INSTALAR</th>
                 {ALL_ITEMS.map(item => (
-                  <th key={item.id} className="px-2 py-1 border-r border-white/10">N° PROTOCOLO</th>
+                  <th key={item.id} className="px-2 py-1 border-r border-white/10">
+                    <div className="flex flex-col">
+                      <span>N° PROTOCOLO</span>
+                      <span className="text-[7px] text-blue-300">MES VAL.</span>
+                    </div>
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -448,14 +474,24 @@ export const ProtocolControlGrid: React.FC<ProtocolControlGridProps> = ({
                   <td className="border-r border-gray-100 p-2 text-xs" style={{ fontSize: `${textHeight}px` }}>{p.intervencion}</td>
                   {ALL_ITEMS.map(item => (
                     <td key={item.id} className="border-r border-gray-100 p-0">
-                      <input 
-                        type="text"
-                        value={p.protocols[item.id] || ""}
-                        onChange={e => handleUpdateProtocolValue(p.id, item.id, e.target.value)}
-                        style={{ fontSize: `${textHeight}px` }}
-                        className="w-full h-full p-2 bg-transparent outline-none text-center focus:bg-blue-50"
-                        placeholder="-"
-                      />
+                      <div className="flex flex-col h-full">
+                        <input 
+                          type="text"
+                          value={p.protocols[item.id] || ""}
+                          onChange={e => handleUpdateProtocolValue(p.id, item.id, e.target.value)}
+                          style={{ fontSize: `${textHeight}px` }}
+                          className="w-full p-1 bg-transparent outline-none text-center focus:bg-blue-50 border-b border-gray-100"
+                          placeholder="Prot."
+                        />
+                        <input 
+                          type="text"
+                          value={p.valuationMonths?.[item.id] || ""}
+                          onChange={e => handleUpdateValuationMonth(p.id, item.id, e.target.value)}
+                          style={{ fontSize: Math.max(6, textHeight - 2) + 'px' }}
+                          className="w-full p-1 bg-transparent outline-none text-center focus:bg-emerald-50 text-emerald-700 font-bold"
+                          placeholder="Mes"
+                        />
+                      </div>
                     </td>
                   ))}
                 </tr>

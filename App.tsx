@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Sector, DikeConfig, MeasurementEntry, ProgressEntry, ProjectBackup, BudgetSection, BackupFile, ProtocolEntry } from "./types";
 import { SECTORS, INITIAL_DIKES, INITIAL_MEASUREMENTS, INITIAL_BUDGET, INITIAL_PROGRESS_ENTRIES } from "./constants";
 import { ConfigurationPanel } from "./components/ConfigurationPanel";
+import { SAMPLE_MEASUREMENTS, SAMPLE_PROGRESS_ENTRIES } from "./src/sampleData";
 import { DataEntryGrid } from "./components/DataEntryGrid";
 import { BudgetPanel } from "./components/BudgetPanel";
 import { MeasurementSummaryPanel } from "./components/MeasurementSummaryPanel";
@@ -13,6 +14,8 @@ import { ReportsPanel } from "./components/ReportsPanel";
 import { SystemStabilityPanel } from "./components/SystemStabilityPanel";
 import { ProtocolControlGrid } from "./components/ProtocolControlGrid";
 import { ValuationReportPanel } from "./components/ValuationReportPanel";
+import { VolumeEntryGrid } from "./components/VolumeEntryGrid";
+import { GlobalImportPanel } from "./components/GlobalImportPanel";
 import { AIAssistant } from "./components/AIAssistant";
 import { Button } from "./components/Button";
 import { analyzeConstructionData } from "./services/geminiService";
@@ -20,7 +23,7 @@ import { saveProjectData, loadProjectData } from "./services/storage";
 import { saveAs } from 'file-saver';
 import { ExcelService } from "./services/excelService";
 import { Document, Packer, Paragraph, TextRun, Table as DocxTable, TableRow as DocxTableRow, TableCell as DocxTableCell, WidthType, AlignmentType, HeadingLevel } from 'docx';
-import { Database, FolderOpen, Table2, Bot, LogOut, Calculator, ClipboardList, ClipboardCheck, HardHat, CalendarRange, FileText, LayoutGrid, ShieldCheck, Search, ArrowDownAZ, X, Cloud, CloudUpload, CloudDownload, RefreshCw, Save, Download, FileSpreadsheet, FileCode, Sparkles, HelpCircle, Info, BookOpen, CheckCircle } from "lucide-react";
+import { Database, FolderOpen, Table2, Bot, LogOut, Calculator, ClipboardList, ClipboardCheck, HardHat, CalendarRange, FileText, LayoutGrid, ShieldCheck, Search, ArrowDownAZ, X, Cloud, CloudUpload, CloudDownload, RefreshCw, Save, Download, FileSpreadsheet, FileCode, Sparkles, HelpCircle, Info, BookOpen, CheckCircle, TrendingUp, Upload } from "lucide-react";
 import { TextArea } from "./components/Input";
 
 import { BrandKitPanel } from "./components/BrandKitPanel";
@@ -29,7 +32,7 @@ import { BrandKit } from "./types";
 
 const App: React.FC = () => {
   // App State
-  const [activeTab, setActiveTab] = useState<"config" | "data" | "summary" | "budget" | "progress" | "schedule" | "report" | "ai" | "support" | "reports" | "adgen" | "protocols" | "valuation">("data");
+  const [activeTab, setActiveTab] = useState<"config" | "data" | "summary" | "budget" | "progress" | "schedule" | "report" | "ai" | "support" | "reports" | "adgen" | "protocols" | "valuation" | "volumes" | "global_import">("data");
   const [showGlobalHelp, setShowGlobalHelp] = useState(false);
   const [selectedSectorId, setSelectedSectorId] = useState<string>("ALL");
   const [selectedDikeId, setSelectedDikeId] = useState<string | null>("DIPR_001_MI"); 
@@ -49,6 +52,45 @@ const App: React.FC = () => {
   // Data State
   const [dikes, setDikes] = useState<DikeConfig[]>(INITIAL_DIKES);
   const [measurements, setMeasurements] = useState<MeasurementEntry[]>(INITIAL_MEASUREMENTS);
+  const [measurementsHistory, setMeasurementsHistory] = useState<MeasurementEntry[][]>([INITIAL_MEASUREMENTS]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  
+  const pushToHistory = (newMeasurements: MeasurementEntry[]) => {
+    const newHistory = measurementsHistory.slice(0, historyIndex + 1);
+    newHistory.push(JSON.parse(JSON.stringify(newMeasurements)));
+    if (newHistory.length > 50) newHistory.shift();
+    setMeasurementsHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  };
+
+  const undoMeasurements = () => {
+    if (historyIndex > 0) {
+      const prevIndex = historyIndex - 1;
+      const prevMeasurements = measurementsHistory[prevIndex];
+      setHistoryIndex(prevIndex);
+      setMeasurements(prevMeasurements);
+      broadcastState({ measurements: prevMeasurements });
+    }
+  };
+
+  const redoMeasurements = () => {
+    if (historyIndex < measurementsHistory.length - 1) {
+      const nextIndex = historyIndex + 1;
+      const nextMeasurements = measurementsHistory[nextIndex];
+      setHistoryIndex(nextIndex);
+      setMeasurements(nextMeasurements);
+      broadcastState({ measurements: nextMeasurements });
+    }
+  };
+
+  const handleClearDikeMeasurements = (dikeId: string) => {
+    if (!confirm(`¿Está seguro de que desea eliminar TODOS los registros del dique actual? Esta acción se puede deshacer con el botón 'Atrás'.`)) return;
+    const updatedM = measurements.filter(m => m.dikeId !== dikeId);
+    setMeasurements(updatedM);
+    pushToHistory(updatedM);
+    broadcastState({ measurements: updatedM });
+  };
+
   const [protocols, setProtocols] = useState<ProtocolEntry[]>([]);
   const [progressEntries, setProgressEntries] = useState<ProgressEntry[]>(INITIAL_PROGRESS_ENTRIES);
   const [customColumns, setCustomColumns] = useState<string[]>([]);
@@ -499,6 +541,7 @@ const App: React.FC = () => {
   const handleAddEntry = (entry: MeasurementEntry) => { 
     const newMeasurements = [...measurements, entry];
     setMeasurements(newMeasurements); 
+    pushToHistory(newMeasurements);
     broadcastState({ measurements: newMeasurements });
     createTempSnapshot('add_entry'); 
   };
@@ -506,21 +549,44 @@ const App: React.FC = () => {
     const otherEntries = measurements.filter(m => m.dikeId !== selectedDikeId);
     const newMeasurements = [...otherEntries, ...updatedEntries];
     setMeasurements(newMeasurements);
+    pushToHistory(newMeasurements);
     broadcastState({ measurements: newMeasurements });
     createTempSnapshot('update_entries');
   };
   const handleDeleteEntry = (id: string) => { 
     const newMeasurements = measurements.filter(m => m.id !== id);
     setMeasurements(newMeasurements); 
+    pushToHistory(newMeasurements);
     broadcastState({ measurements: newMeasurements });
     createTempSnapshot('delete_entry'); 
   };
   const handleAddColumn = (columnName: string) => { 
-    if (columnName && !customColumns.includes(columnName)) { 
-      const newCols = [...customColumns, columnName];
-      setCustomColumns(newCols); 
-      broadcastState({ customColumns: newCols });
+    const name = columnName.trim();
+    if (!name) return;
+
+    // Standard columns to avoid conflicts
+    const standardColumns = [
+      'pk', 'distancia', 'tipoTerreno', 'tipoEnrocado', 'intervencion', 'id', 'dikeId',
+      'item401A', 'item402B', 'item402B_MM', 'item402C', 'item402D', 'item402E', 'item402E_MM',
+      'item403A', 'item403A_MM', 'item403B', 'item404A', 'item404A_MM', 'item404B', 'item404D',
+      'item404D_MM', 'item404E', 'item404G', 'item404H', 'item405A', 'item406A', 'item407A',
+      'item408A', 'item409A', 'item409B', 'item410A', 'item410B', 'item412A', 'item413A',
+      'item413A_MM', 'item414A', 'item415', 'item416A', 'item501A_Carguio'
+    ];
+
+    if (standardColumns.some(c => c.toLowerCase() === name.toLowerCase())) {
+      alert(`"${name}" es un nombre reservado para columnas estándar.`);
+      return;
+    }
+
+    if (customColumns.some(c => c.toLowerCase() === name.toLowerCase())) { 
+      alert(`La columna "${name}" ya existe.`);
+      return;
     } 
+
+    const newCols = [...customColumns, name];
+    setCustomColumns(newCols); 
+    broadcastState({ customColumns: newCols });
   };
   const handleDeleteColumn = (columnName: string) => { 
     const newCols = customColumns.filter(c => c !== columnName);
@@ -780,6 +846,95 @@ const App: React.FC = () => {
     setActiveTab("summary");
   };
 
+  const handleGenerateDikeSample = (dikeId: string) => {
+    const dike = dikes.find(d => d.id === dikeId);
+    if (!dike) return;
+
+    if (!confirm(`¿Desea generar metrados de muestra para el dique "${dike.name}"? Los metrados actuales de este dique serán reemplazados.`)) return;
+
+    const parsePkLocal = (pkStr: string): number => {
+        if (!pkStr) return 0;
+        const clean = pkStr.replace(/\s/g, '');
+        if (clean.includes('+')) {
+            const [km, m] = clean.split('+');
+            return (parseFloat(km) * 1000) + parseFloat(m);
+        }
+        return parseFloat(clean) || 0;
+    };
+
+    const formatPkLocal = (meters: number): string => {
+        const km = Math.floor(meters / 1000);
+        const m = (meters % 1000).toFixed(2);
+        return `${km}+${m.toString().padStart(6, '0')}`;
+    };
+
+    const startM = parsePkLocal(dike.progInicioDique);
+    const endM = parsePkLocal(dike.progFinDique);
+    const totalLength = Math.abs(endM - startM);
+    
+    if (totalLength <= 0) {
+        alert("El dique no tiene una longitud válida configurada.");
+        return;
+    }
+
+    const step = 20; 
+    const points = Math.ceil(totalLength / step);
+    const direction = endM > startM ? 1 : -1;
+    const newEntries: MeasurementEntry[] = [];
+
+    for (let i = 0; i <= points; i++) {
+        let currentM = startM + (i * step * direction);
+        if ((direction === 1 && currentM > endM) || (direction === -1 && currentM < endM)) {
+            currentM = endM;
+        }
+
+        const dist = i === 0 ? 0 : Math.abs(currentM - (startM + ((i-1) * step * direction)));
+        if (i > 0 && dist === 0) continue;
+
+        const isB2 = Math.random() > 0.6; 
+
+        const entry: MeasurementEntry = {
+            id: `SAMPLE_${dike.id}_${i}_${Date.now()}`,
+            dikeId: dike.id,
+            pk: formatPkLocal(currentM),
+            distancia: parseFloat(dist.toFixed(2)),
+            tipoTerreno: isB2 ? "B2" : "B1",
+            tipoEnrocado: Math.random() > 0.5 ? "TIPO 1" : "TIPO 2",
+            intervencion: "GENERACIÓN DE MUESTRA",
+            item501A_Carguio: 1,
+            item401A: isB2 ? 0 : 1.2,
+            item402B: parseFloat((Math.random() * 5 + 2).toFixed(2)),
+            item402E: parseFloat((Math.random() * 4 + 2).toFixed(2)),
+            item403A: parseFloat((Math.random() * 3 + 1).toFixed(2)),
+            item404A: parseFloat((Math.random() * 8 + 5).toFixed(2)),
+            item404D: parseFloat((Math.random() * 4 + 2).toFixed(2)),
+            item409A: 15.5,
+            item412A: 0.85,
+            item413A: parseFloat((Math.random() * 2).toFixed(2)),
+            item415: isB2 ? parseFloat((Math.random() * 6 + 2).toFixed(2)) : 0,
+            item416A: 1.0
+        };
+        newEntries.push(entry);
+        if (currentM === endM) break;
+    }
+
+    createTempSnapshot('generate_dike_sample');
+    const otherMeasurements = measurements.filter(m => m.dikeId !== dike.id);
+    const updatedMeasurements = [...otherMeasurements, ...newEntries];
+    setMeasurements(updatedMeasurements);
+    broadcastState({ measurements: updatedMeasurements });
+    alert(`Se han generado ${newEntries.length} registros de muestra para el dique ${dike.name}.`);
+  };
+
+  const handleLoadSamples = () => {
+    if (!confirm("¿Desea cargar los datos de muestra? Esto reemplazará los metrados y avances actuales.")) return;
+    setMeasurements(SAMPLE_MEASUREMENTS);
+    setProgressEntries(SAMPLE_PROGRESS_ENTRIES);
+    broadcastState({ measurements: SAMPLE_MEASUREMENTS, progressEntries: SAMPLE_PROGRESS_ENTRIES });
+    alert("Datos de muestra cargados exitosamente.");
+    setActiveTab("summary");
+  };
+
   const handleFixData = (type: 'orphans' | 'dates' | 'budget' | 'units') => {
     if (type === 'orphans') {
         const validDikeIds = new Set(dikes.map(d => d.id));
@@ -983,6 +1138,12 @@ const App: React.FC = () => {
                     </button>
                     <button onClick={() => setActiveTab("data")} className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors ${activeTab === 'data' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'}`}>
                         <Table2 className="w-3.5 h-3.5" /><span className="font-medium text-xs">Hoja de Metrados</span>
+                    </button>
+                    <button onClick={() => setActiveTab("volumes")} className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors ${activeTab === 'volumes' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'}`}>
+                        <TrendingUp className="w-3.5 h-3.5" /><span className="font-medium text-xs">Hoja de Volúmenes</span>
+                    </button>
+                    <button onClick={() => setActiveTab("global_import")} className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors ${activeTab === 'global_import' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'}`}>
+                        <Upload className="w-3.5 h-3.5" /><span className="font-medium text-xs">Importación Global</span>
                     </button>
                     <button onClick={() => setActiveTab("summary")} className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors ${activeTab === 'summary' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'}`}>
                         <ClipboardList className="w-3.5 h-3.5" /><span className="font-medium text-xs">Resumen Partidas</span>
@@ -1207,20 +1368,51 @@ const App: React.FC = () => {
                         onAddColumn={handleAddColumn} 
                         onDeleteColumn={handleDeleteColumn} 
                         onImportMeasurements={handleImportMeasurements}
-                        onGenerateExercise={handleGenerateExercise} 
+                        onGenerateExercise={handleGenerateExercise}
+                        onGenerateDikeSample={handleGenerateDikeSample}
+                        onLoadSamples={handleLoadSamples}
                         filterSectorId={selectedSectorId}
                         filterDikeId={selectedDikeId || "ALL"}
                     />
                 )}
-                {activeTab === "data" && <DataEntryGrid dike={currentDike} entries={currentDikeMeasurements} customColumns={customColumns} budget={budgetBySector[currentDike?.sectorId || ""] || []} onAddEntry={handleAddEntry} onUpdateEntries={handleUpdateEntries} onDeleteEntry={handleDeleteEntry} onAddColumn={handleAddColumn} onDeleteColumn={handleDeleteColumn} onFullImport={()=>{}} filterSectorId={selectedSectorId} filterDikeId={selectedDikeId || "ALL"} />}
+                {activeTab === "data" && (
+                    <DataEntryGrid 
+                        dike={currentDike} 
+                        entries={currentDikeMeasurements} 
+                        customColumns={customColumns} 
+                        allDikes={dikes} 
+                        budget={budgetBySector[currentDike?.sectorId || ""] || []} 
+                        onAddEntry={handleAddEntry} 
+                        onUpdateEntries={handleUpdateEntries} 
+                        onDeleteEntry={handleDeleteEntry} 
+                        onAddColumn={handleAddColumn} 
+                        onDeleteColumn={handleDeleteColumn} 
+                        onFullImport={()=>{}} 
+                        filterSectorId={selectedSectorId} 
+                        filterDikeId={selectedDikeId || "ALL"} 
+                        onUndo={undoMeasurements}
+                        onRedo={redoMeasurements}
+                        canUndo={historyIndex > 0}
+                        canRedo={historyIndex < measurementsHistory.length - 1}
+                        onClear={() => currentDike && handleClearDikeMeasurements(currentDike.id)}
+                    />
+                )}
+                {activeTab === "volumes" && <VolumeEntryGrid dike={currentDike} entries={measurements} customColumns={customColumns} sectors={sectors} allDikes={dikes} budgetBySector={budgetBySector} filterSectorId={selectedSectorId} filterDikeId={selectedDikeId || "ALL"} />}
+                {activeTab === "global_import" && <GlobalImportPanel sectors={sectors} dikes={dikes} onImport={({ measurements: newM, protocols: newP }) => {
+                    const updatedM = [...measurements, ...newM];
+                    const updatedP = [...protocols, ...newP];
+                    setMeasurements(updatedM);
+                    setProtocols(updatedP);
+                    broadcastState({ measurements: updatedM, protocols: updatedP });
+                }} />}
                 {activeTab === "protocols" && <ProtocolControlGrid dike={currentDike} measurements={measurements} protocols={protocols} onUpdateProtocols={(newProtocols) => { setProtocols(newProtocols); broadcastState({ protocols: newProtocols }); }} filterSectorId={selectedSectorId} filterDikeId={selectedDikeId || "ALL"} dikes={dikes} />}
-                {activeTab === "summary" && <MeasurementSummaryPanel budget={consolidatedBudget} measurements={measurements} dikes={dikes} sectors={sectors} budgetBySector={budgetBySector} onUpdateBudget={handleUpdateBudget} filterSectorId={selectedSectorId} filterDikeId={selectedDikeId || "ALL"} />}
+                {activeTab === "summary" && <MeasurementSummaryPanel budget={consolidatedBudget} measurements={measurements} protocols={protocols} dikes={dikes} sectors={sectors} budgetBySector={budgetBySector} onUpdateBudget={handleUpdateBudget} filterSectorId={selectedSectorId} filterDikeId={selectedDikeId || "ALL"} />}
                 {activeTab === "budget" && <BudgetPanel budgetBySector={budgetBySector} budgetByDike={budgetByDike} sectors={sectors} onUpdateBudget={handleUpdateBudget} onUpdateDikeBudget={handleUpdateDikeBudget} measurements={measurements} dikes={dikes} filterSectorId={selectedSectorId} filterDikeId={selectedDikeId || "ALL"} />}
                 {activeTab === "progress" && <ProgressControlPanel sectors={sectors} dikes={dikes} budget={consolidatedBudget} budgetBySector={budgetBySector} entries={progressEntries} onAddEntry={handleAddProgress} onUpdateEntry={handleUpdateProgressEntry} onDeleteEntry={handleDeleteProgress} filterSectorId={selectedSectorId} filterDikeId={selectedDikeId || "ALL"} />}
                 {activeTab === "schedule" && <LinearSchedulePanel sectors={sectors} dikes={dikes} budget={consolidatedBudget} progressEntries={progressEntries} filterSectorId={selectedSectorId} filterDikeId={selectedDikeId || "ALL"} />}
                 {activeTab === "report" && <DescriptiveReportPanel sectors={sectors} dikes={dikes} measurements={measurements} budgetBySector={budgetBySector} progressEntries={progressEntries} filterSectorId={selectedSectorId} filterDikeId={selectedDikeId || "ALL"} />}
                 {activeTab === "reports" && <ReportsPanel sectors={sectors} dikes={dikes} measurements={measurements} progressEntries={progressEntries} budgetBySector={budgetBySector} filterSectorId={selectedSectorId} filterDikeId={selectedDikeId || "ALL"} />}
-                {activeTab === "valuation" && <ValuationReportPanel sectors={sectors} budgetBySector={budgetBySector} measurements={measurements} dikes={dikes} filterSectorId={selectedSectorId} filterDikeId={selectedDikeId || "ALL"} />}
+                {activeTab === "valuation" && <ValuationReportPanel sectors={sectors} budgetBySector={budgetBySector} measurements={measurements} protocols={protocols} dikes={dikes} filterSectorId={selectedSectorId} filterDikeId={selectedDikeId || "ALL"} />}
                 {activeTab === "support" && <SystemStabilityPanel dikes={dikes} measurements={measurements} progressEntries={progressEntries} budgetBySector={budgetBySector} onFixData={handleFixData} onClearLogs={()=>{}} storagePath={storagePath} onUpdateStoragePath={setStoragePath} onGenerateExercise={handleGenerateExercise} />}
                 {activeTab === "ai" && (
                     <div className="max-w-2xl mx-auto space-y-6">
